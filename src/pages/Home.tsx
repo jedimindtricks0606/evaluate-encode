@@ -1,5 +1,5 @@
 import { Layout, Row, Col, Typography, Button, Upload, Card, Space } from 'antd';
-import { PlayCircleOutlined, UploadOutlined, InboxOutlined, VideoCameraOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlayCircleOutlined, UploadOutlined, InboxOutlined, VideoCameraOutlined, EyeOutlined, CloseOutlined } from '@ant-design/icons';
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Layout/Header';
@@ -170,6 +170,18 @@ export default function Home() {
     uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const handleClearOriginal = () => {
+    if (originalVideo?.url) URL.revokeObjectURL(originalVideo.url);
+    setOriginalVideo(null);
+    originalNotifiedRef.current = false;
+  };
+
+  const handleClearExported = () => {
+    if (exportedVideo?.url) URL.revokeObjectURL(exportedVideo.url);
+    setExportedVideo(null);
+    exportedNotifiedRef.current = false;
+  };
+
   
 
   return (
@@ -183,52 +195,50 @@ export default function Home() {
           <Title level={2} className="!mb-4">上传视频</Title>
           <Row gutter={24}>
             <Col span={12}>
-              <Card title="原视频" className="shadow-sm" extra={originalVideo && <EyeOutlined />}>
-                <Dragger {...uploadProps} onChange={handleOriginalUpload}>
-                  <div className="p-8 text-center">
-                    <InboxOutlined className="text-4xl text-blue-500 mb-4" />
-                    <p className="text-lg font-medium mb-2">点击或拖拽上传原视频</p>
-                    <p className="text-gray-500">支持 MP4, MOV, AVI 等格式</p>
-                    <p className="text-gray-400 text-sm">文件大小不超过 500MB</p>
+              <Card 
+                title="原视频" 
+                className="shadow-sm" 
+                extra={originalVideo ? (
+                  <Button type="text" icon={<CloseOutlined />} onClick={handleClearOriginal}>关闭</Button>
+                ) : <EyeOutlined />}
+              >
+                {originalVideo ? (
+                  <div className="p-2">
+                    <video src={originalVideo.url} controls className="w-full h-64 rounded" />
                   </div>
-                </Dragger>
-                {originalVideo && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded">
-                    <Space>
-                      <VideoCameraOutlined className="text-blue-600" />
-                      <div>
-                        <Text strong className="block">{originalVideo.name}</Text>
-                        <Text type="secondary" className="text-sm">
-                          {(originalVideo.size / 1024 / 1024).toFixed(1)} MB
-                        </Text>
-                      </div>
-                    </Space>
-                  </div>
+                ) : (
+                  <Dragger {...uploadProps} onChange={handleOriginalUpload}>
+                    <div className="p-8 text-center">
+                      <InboxOutlined className="text-4xl text-blue-500 mb-4" />
+                      <p className="text-lg font-medium mb-2">点击或拖拽上传原视频</p>
+                      <p className="text-gray-500">支持 MP4, MOV, AVI 等格式</p>
+                      <p className="text-gray-400 text-sm">文件大小不超过 500MB</p>
+                    </div>
+                  </Dragger>
                 )}
               </Card>
             </Col>
             <Col span={12}>
-              <Card title="导出视频" className="shadow-sm" extra={exportedVideo && <EyeOutlined />}>
-                <Dragger {...uploadProps} onChange={handleExportedUpload}>
-                  <div className="p-8 text-center">
-                    <InboxOutlined className="text-4xl text-green-500 mb-4" />
-                    <p className="text-lg font-medium mb-2">点击或拖拽上传导出视频</p>
-                    <p className="text-gray-500">支持 MP4, MOV, AVI 等格式</p>
-                    <p className="text-gray-400 text-sm">文件大小不超过 500MB</p>
+              <Card 
+                title="导出视频" 
+                className="shadow-sm" 
+                extra={exportedVideo ? (
+                  <Button type="text" icon={<CloseOutlined />} onClick={handleClearExported}>关闭</Button>
+                ) : <EyeOutlined />}
+              >
+                {exportedVideo ? (
+                  <div className="p-2">
+                    <video src={exportedVideo.url} controls className="w-full h-64 rounded" />
                   </div>
-                </Dragger>
-                {exportedVideo && (
-                  <div className="mt-4 p-3 bg-green-50 rounded">
-                    <Space>
-                      <VideoCameraOutlined className="text-green-600" />
-                      <div>
-                        <Text strong className="block">{exportedVideo.name}</Text>
-                        <Text type="secondary" className="text-sm">
-                          {(exportedVideo.size / 1024 / 1024).toFixed(1)} MB
-                        </Text>
-                      </div>
-                    </Space>
-                  </div>
+                ) : (
+                  <Dragger {...uploadProps} onChange={handleExportedUpload}>
+                    <div className="p-8 text-center">
+                      <InboxOutlined className="text-4xl text-green-500 mb-4" />
+                      <p className="text-lg font-medium mb-2">点击或拖拽上传导出视频</p>
+                      <p className="text-gray-500">支持 MP4, MOV, AVI 等格式</p>
+                      <p className="text-gray-400 text-sm">文件大小不超过 500MB</p>
+                    </div>
+                  </Dragger>
                 )}
               </Card>
             </Col>
