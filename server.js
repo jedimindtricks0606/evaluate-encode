@@ -342,6 +342,63 @@ app.post('/evaluate', upload.fields([
   }
 });
 
+app.post('/evaluate/vmaf', upload.fields([
+  { name: 'beforeVideo', maxCount: 1 },
+  { name: 'afterVideo', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const before = req.files?.beforeVideo?.[0];
+    const after = req.files?.afterVideo?.[0];
+    if (!before || !after) return res.status(400).json({ error: '必须上传导出前与导出后视频' });
+    const beforePath = before.path;
+    const afterPath = after.path;
+    const vmaf = computeVMAF(beforePath, afterPath);
+    try { fs.unlinkSync(beforePath); } catch (_) {}
+    try { fs.unlinkSync(afterPath); } catch (_) {}
+    return res.json({ metrics: { vmaf } });
+  } catch (e) {
+    return res.status(500).json({ error: 'VMAF计算失败', detail: String(e && e.message || e) });
+  }
+});
+
+app.post('/evaluate/psnr', upload.fields([
+  { name: 'beforeVideo', maxCount: 1 },
+  { name: 'afterVideo', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const before = req.files?.beforeVideo?.[0];
+    const after = req.files?.afterVideo?.[0];
+    if (!before || !after) return res.status(400).json({ error: '必须上传导出前与导出后视频' });
+    const beforePath = before.path;
+    const afterPath = after.path;
+    const psnr = computePSNR(beforePath, afterPath);
+    try { fs.unlinkSync(beforePath); } catch (_) {}
+    try { fs.unlinkSync(afterPath); } catch (_) {}
+    return res.json({ metrics: { psnr_db: psnr } });
+  } catch (e) {
+    return res.status(500).json({ error: 'PSNR计算失败', detail: String(e && e.message || e) });
+  }
+});
+
+app.post('/evaluate/ssim', upload.fields([
+  { name: 'beforeVideo', maxCount: 1 },
+  { name: 'afterVideo', maxCount: 1 }
+]), async (req, res) => {
+  try {
+    const before = req.files?.beforeVideo?.[0];
+    const after = req.files?.afterVideo?.[0];
+    if (!before || !after) return res.status(400).json({ error: '必须上传导出前与导出后视频' });
+    const beforePath = before.path;
+    const afterPath = after.path;
+    const ssim = computeSSIM(beforePath, afterPath);
+    try { fs.unlinkSync(beforePath); } catch (_) {}
+    try { fs.unlinkSync(afterPath); } catch (_) {}
+    return res.json({ metrics: { ssim } });
+  } catch (e) {
+    return res.status(500).json({ error: 'SSIM计算失败', detail: String(e && e.message || e) });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

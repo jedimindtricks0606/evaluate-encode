@@ -76,6 +76,12 @@ export interface EvaluationResults {
   };
 }
 
+export interface QualityMetricCache {
+  vmaf?: number;
+  psnr?: number;
+  ssim?: number;
+}
+
 export interface SpeedHistory {
   timestamp: string;
   exportTime: number;

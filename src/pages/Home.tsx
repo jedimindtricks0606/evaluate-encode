@@ -8,7 +8,7 @@ import SpeedEvaluationCard from '@/components/Evaluation/SpeedEvaluationCard';
 import BitrateAnalysisCard from '@/components/Evaluation/BitrateAnalysisCard';
 import { useEvaluationStore } from '@/stores/evaluationStore';
 import { EvaluationResults } from '@/types';
-import { evaluateQuality } from '@/lib/api';
+import { evaluateQuality, evaluateVMAF, evaluatePSNR, evaluateSSIM } from '@/lib/api';
 import { message } from 'antd';
 
 const { Content } = Layout;
@@ -17,7 +17,7 @@ const { Dragger } = Upload;
 
 export default function Home() {
   const navigate = useNavigate();
-  const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo } = useEvaluationStore();
+  const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo, qualityCache, upsertQualityCache } = useEvaluationStore();
   
   const [exportTime, setExportTime] = useState(30);
   const [benchmark, setBenchmark] = useState('标准测试');
@@ -106,17 +106,36 @@ export default function Home() {
         return;
       }
       message.loading({ content: '画质评估中...', key: 'eval', duration: 0 });
-      const data = await evaluateQuality({
-        before: originalVideo.raw,
-        after: exportedVideo.raw,
-        exportTimeSeconds: exportTime,
-        weights: { quality: 0.6, speed: 0.2, bitrate: 0.2 },
-        targetBitrateKbps: Math.round((originalVideo.bitrate || 0) / 1000) || undefined,
-        targetRTF: 1.0,
-      });
-      const vmafScore = Number(data?.metrics?.vmaf ?? 0);
-      const psnrAvg = Number(data?.metrics?.psnr_db ?? 0);
-      const ssimScore = Number(data?.metrics?.ssim ?? 0);
+      const key = `${originalVideo.name}:${originalVideo.size}|${exportedVideo.name}:${exportedVideo.size}`;
+      let vmafScore = qualityCache[key]?.vmaf;
+      let psnrAvg = qualityCache[key]?.psnr;
+      let ssimScore = qualityCache[key]?.ssim;
+      const tasks: Promise<void>[] = [];
+      if (selectedTypes.includes('vmaf' as any) && (vmafScore == null)) {
+        tasks.push((async () => {
+          const d = await evaluateVMAF(originalVideo.raw, exportedVideo.raw);
+          vmafScore = Number(d?.metrics?.vmaf ?? 0);
+          upsertQualityCache(key, { vmaf: vmafScore });
+        })());
+      }
+      if (selectedTypes.includes('psnr' as any) && (psnrAvg == null)) {
+        tasks.push((async () => {
+          const d = await evaluatePSNR(originalVideo.raw, exportedVideo.raw);
+          psnrAvg = Number(d?.metrics?.psnr_db ?? 0);
+          upsertQualityCache(key, { psnr: psnrAvg });
+        })());
+      }
+      if (selectedTypes.includes('ssim' as any) && (ssimScore == null)) {
+        tasks.push((async () => {
+          const d = await evaluateSSIM(originalVideo.raw, exportedVideo.raw);
+          ssimScore = Number(d?.metrics?.ssim ?? 0);
+          upsertQualityCache(key, { ssim: ssimScore });
+        })());
+      }
+      if (tasks.length) await Promise.all(tasks);
+      vmafScore = vmafScore ?? qualityCache[key]?.vmaf ?? 0;
+      psnrAvg = psnrAvg ?? qualityCache[key]?.psnr ?? 0;
+      ssimScore = ssimScore ?? qualityCache[key]?.ssim ?? 0;
       const next: EvaluationResults = {} as any;
       if (selectedTypes.includes('vmaf' as any)) {
         next.vmaf = { score: isNaN(vmafScore) ? 0 : vmafScore, histogram: [], frameScores: [] };

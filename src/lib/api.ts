@@ -24,3 +24,30 @@ export async function evaluateQuality(options: {
   }
   return resp.json();
 }
+
+export async function evaluateVMAF(before: File, after: File): Promise<any> {
+  const fd = new FormData();
+  fd.append('beforeVideo', before);
+  fd.append('afterVideo', after);
+  const resp = await fetch('http://localhost:3000/evaluate/vmaf', { method: 'POST', body: fd });
+  if (!resp.ok) throw new Error('VMAF计算失败');
+  return resp.json();
+}
+
+export async function evaluatePSNR(before: File, after: File): Promise<any> {
+  const fd = new FormData();
+  fd.append('beforeVideo', before);
+  fd.append('afterVideo', after);
+  const resp = await fetch('http://localhost:3000/evaluate/psnr', { method: 'POST', body: fd });
+  if (!resp.ok) throw new Error('PSNR计算失败');
+  return resp.json();
+}
+
+export async function evaluateSSIM(before: File, after: File): Promise<any> {
+  const fd = new FormData();
+  fd.append('beforeVideo', before);
+  fd.append('afterVideo', after);
+  const resp = await fetch('http://localhost:3000/evaluate/ssim', { method: 'POST', body: fd });
+  if (!resp.ok) throw new Error('SSIM计算失败');
+  return resp.json();
+}
