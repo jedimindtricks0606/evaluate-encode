@@ -5,6 +5,7 @@ export async function evaluateQuality(options: {
   weights?: { quality?: number; speed?: number; bitrate?: number };
   targetBitrateKbps?: number | null;
   targetRTF?: number | null;
+  mode?: 'quality' | 'bitrate';
 }): Promise<any> {
   const fd = new FormData();
   fd.append('beforeVideo', options.before);
@@ -15,6 +16,7 @@ export async function evaluateQuality(options: {
   if (options.weights?.bitrate != null) fd.append('w_bitrate', String(options.weights.bitrate));
   if (options.targetBitrateKbps != null) fd.append('targetBitrateKbps', String(options.targetBitrateKbps));
   if (options.targetRTF != null) fd.append('targetRTF', String(options.targetRTF));
+  if (options.mode) fd.append('mode', options.mode);
   const resp = await fetch('http://localhost:3000/evaluate', { method: 'POST', body: fd });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: 'unknown' }));
@@ -22,4 +24,3 @@ export async function evaluateQuality(options: {
   }
   return resp.json();
 }
-

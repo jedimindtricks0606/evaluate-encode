@@ -51,6 +51,33 @@ function ffprobeJson(file) {
   }
 }
 
+function ffprobeFps(file) {
+  try {
+    const out = execFileSync('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=avg_frame_rate,r_frame_rate',
+      '-of', 'default=nokey=1:noprint_wrappers=1',
+      file
+    ], { encoding: 'utf8' });
+    const lines = (out || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    for (const s of lines) {
+      if (s && s !== 'N/A') {
+        if (s.includes('/')) {
+          const [n, d] = s.split('/').map(Number);
+          if (d && d > 0) return Number((n / d).toFixed(2));
+        } else {
+          const val = Number(s);
+          if (!isNaN(val) && val > 0) return val;
+        }
+      }
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function getDurationSeconds(meta) {
   const d = Number(meta?.format?.duration ?? 0);
   return isNaN(d) ? 0 : d;
@@ -68,6 +95,42 @@ function getBitrateBps(meta) {
     } catch (_) {}
   }
   return isNaN(bps) ? 0 : bps;
+}
+
+function getFps(meta) {
+  const vStream = (meta?.streams || []).find(s => s.codec_type === 'video');
+  const afr = vStream?.avg_frame_rate || vStream?.r_frame_rate || null;
+  try {
+    if (afr) {
+      if (typeof afr === 'string') {
+        if (afr.includes('/')) {
+          const [n, d] = afr.split('/').map(Number);
+          if (d && d > 0) return Number((n / d).toFixed(2));
+        } else {
+          const val = Number(afr);
+          if (!isNaN(val)) return val;
+        }
+      } else {
+        const val = Number(afr);
+        if (!isNaN(val)) return val;
+      }
+    }
+    // Fallback: use nb_frames / duration
+    const nbFrames = Number(vStream?.nb_frames || 0);
+    const dur = Number(vStream?.duration || meta?.format?.duration || 0);
+    if (nbFrames > 0 && dur > 0) {
+      return Number((nbFrames / dur).toFixed(2));
+    }
+    // Fallback: codec_time_base (e.g., 1/60)
+    const tbase = vStream?.codec_time_base || vStream?.time_base || null;
+    if (typeof tbase === 'string' && tbase.includes('/')) {
+      const [n, d] = tbase.split('/').map(Number);
+      if (n > 0 && d > 0) return Number((d / n).toFixed(2));
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function computePSNR(beforePath, afterPath) {
@@ -200,6 +263,7 @@ app.post('/evaluate', upload.fields([
     const before = req.files?.beforeVideo?.[0];
     const after = req.files?.afterVideo?.[0];
     const exportTimeSeconds = Number(req.body?.exportTimeSeconds || 0);
+    const mode = req.body?.mode || null;
     const targetBitrateKbps = req.body?.targetBitrateKbps ? Number(req.body.targetBitrateKbps) : null;
     const targetRTF = req.body?.targetRTF ? Number(req.body.targetRTF) : 1.0;
     const weights = normalizeWeights({
@@ -223,10 +287,17 @@ app.post('/evaluate', upload.fields([
     const duration = getDurationSeconds(metaAfter) || getDurationSeconds(metaBefore);
     const bitrateBefore = getBitrateBps(metaBefore);
     const bitrateAfter = getBitrateBps(metaAfter);
+    let fpsBefore = getFps(metaBefore);
+    let fpsAfter = getFps(metaAfter);
+    if (fpsBefore == null) fpsBefore = ffprobeFps(beforePath);
+    if (fpsAfter == null) fpsAfter = ffprobeFps(afterPath);
 
-    const psnr = computePSNR(beforePath, afterPath);
-    const vmaf = computeVMAF(beforePath, afterPath);
-    const ssim = computeSSIM(beforePath, afterPath);
+    let psnr = null, vmaf = null, ssim = null;
+    if (mode !== 'bitrate') {
+      psnr = computePSNR(beforePath, afterPath);
+      vmaf = computeVMAF(beforePath, afterPath);
+      ssim = computeSSIM(beforePath, afterPath);
+    }
 
     const qualityScore = normalizeQuality(vmaf, psnr);
     const targetBps = targetBitrateKbps ? Math.round(targetBitrateKbps * 1000) : bitrateBefore;
@@ -253,6 +324,8 @@ app.post('/evaluate', upload.fields([
           psnr_db: psnr,
           vmaf: vmaf,
           ssim: ssim,
+          fps_before: fpsBefore,
+          fps_after: fpsAfter,
           speed_export_seconds: exportTimeSeconds,
           target_rtf: targetRTF
         },

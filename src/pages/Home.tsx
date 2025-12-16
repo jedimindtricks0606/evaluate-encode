@@ -24,6 +24,9 @@ export default function Home() {
   const [qualityResults, setQualityResults] = useState<EvaluationResults | null>(null);
   const [speedResults, setSpeedResults] = useState<{ rtf: number; exportTime: number } | null>(null);
   const [bitrateResults, setBitrateResults] = useState<{ ratio: number; original: number; exported: number } | null>(null);
+  const [originalFps, setOriginalFps] = useState<number | undefined>(undefined);
+  const [exportedFps, setExportedFps] = useState<number | undefined>(undefined);
+  const [bitrateLoading, setBitrateLoading] = useState(false);
 
   const originalNotifiedRef = useRef(false);
   const exportedNotifiedRef = useRef(false);
@@ -145,18 +148,24 @@ export default function Home() {
         uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
         return;
       }
+      setBitrateLoading(true);
       message.loading({ content: '码率分析中...', key: 'bitrate', duration: 0 });
       const data = await evaluateQuality({
         before: originalVideo.raw,
         after: exportedVideo.raw,
         exportTimeSeconds: exportTime,
+        mode: 'bitrate'
       });
       const original = Number(data?.metrics?.bitrate_before_bps ?? 0);
       const exported = Number(data?.metrics?.bitrate_after_bps ?? 0);
       setBitrateResults({ ratio: 0, original, exported });
+      setOriginalFps(data?.metrics?.fps_before != null ? Number(data.metrics.fps_before) : undefined);
+      setExportedFps(data?.metrics?.fps_after != null ? Number(data.metrics.fps_after) : undefined);
       message.success({ content: '码率分析完成', key: 'bitrate', duration: 2 });
     } catch (err: any) {
       message.error({ content: String(err?.message || err), key: 'bitrate' });
+    } finally {
+      setBitrateLoading(false);
     }
   };
 
@@ -204,7 +213,19 @@ export default function Home() {
               >
                 {originalVideo ? (
                   <div className="p-2">
-                    <video src={originalVideo.url} controls className="w-full h-64 rounded" />
+                    <video 
+                      src={originalVideo.url} 
+                      controls 
+                      className="w-full h-64 rounded"
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget as HTMLVideoElement;
+                        setOriginalVideo({
+                          ...originalVideo,
+                          duration: Math.round(v.duration) || originalVideo.duration,
+                          resolution: `${v.videoWidth}x${v.videoHeight}`
+                        });
+                      }}
+                    />
                   </div>
                 ) : (
                   <Dragger {...uploadProps} onChange={handleOriginalUpload}>
@@ -228,7 +249,19 @@ export default function Home() {
               >
                 {exportedVideo ? (
                   <div className="p-2">
-                    <video src={exportedVideo.url} controls className="w-full h-64 rounded" />
+                    <video 
+                      src={exportedVideo.url} 
+                      controls 
+                      className="w-full h-64 rounded"
+                      onLoadedMetadata={(e) => {
+                        const v = e.currentTarget as HTMLVideoElement;
+                        setExportedVideo({
+                          ...exportedVideo,
+                          duration: Math.round(v.duration) || exportedVideo.duration,
+                          resolution: `${v.videoWidth}x${v.videoHeight}`
+                        });
+                      }}
+                    />
                   </div>
                 ) : (
                   <Dragger {...uploadProps} onChange={handleExportedUpload}>
@@ -273,6 +306,11 @@ export default function Home() {
                 exportedBitrate={bitrateResults?.exported}
                 onAnalyze={handleBitrateAnalyze}
                 results={bitrateResults}
+                originalResolution={originalVideo?.resolution}
+                exportedResolution={exportedVideo?.resolution}
+                originalFps={originalFps}
+                exportedFps={exportedFps}
+                loading={bitrateLoading}
               />
             </Col>
           </Row>

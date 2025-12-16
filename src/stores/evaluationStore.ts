@@ -19,7 +19,7 @@ export const useEvaluationStore = create<EvaluationState>((set) => ({
   currentTask: null,
   originalVideo: null,
   exportedVideo: null,
-  selectedTypes: [EvaluationType.VMAF, EvaluationType.PSNR, EvaluationType.SPEED, EvaluationType.BITRATE],
+  selectedTypes: [EvaluationType.VMAF],
   isProcessing: false,
   setCurrentTask: (task) => set({ currentTask: task }),
   setOriginalVideo: (video) => set({ originalVideo: video }),
@@ -30,7 +30,7 @@ export const useEvaluationStore = create<EvaluationState>((set) => ({
     currentTask: null,
     originalVideo: null,
     exportedVideo: null,
-    selectedTypes: [EvaluationType.VMAF, EvaluationType.PSNR, EvaluationType.SPEED, EvaluationType.BITRATE],
+    selectedTypes: [EvaluationType.VMAF],
     isProcessing: false,
   }),
 }));
