@@ -494,6 +494,23 @@ app.post('/automation/save-csv', express.json({ limit: '10mb' }), async (req, re
   }
 });
 
+app.post('/automation/save-upload', upload.single('file'), async (req, res) => {
+  try {
+    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const filename = req.body?.filename || (req.file?.originalname || `upload_${Date.now()}`);
+    const tmpPath = req.file?.path;
+    if (!tmpPath) return res.status(400).json({ status: 'error', message: 'missing file' });
+    const buf = fs.readFileSync(tmpPath);
+    if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+    const outPath = path.join(saveDir, filename);
+    fs.writeFileSync(outPath, buf);
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+    return res.json({ status: 'success', saved_path: outPath, url: `/files/${filename}` });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'save upload failed', detail: String(e && e.message || e) });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

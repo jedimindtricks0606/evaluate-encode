@@ -118,3 +118,18 @@ export async function automationSaveCsv(options: {
   if (!resp.ok) throw new Error(String((data as any)?.message || '保存 CSV 失败'));
   return data as any;
 }
+
+export async function automationSaveUpload(options: {
+  file: File;
+  localSaveDir: string;
+  filename?: string;
+}): Promise<{ status: string; saved_path?: string; url?: string; message?: string }> {
+  const fd = new FormData();
+  fd.append('file', options.file);
+  fd.append('save_dir', options.localSaveDir);
+  if (options.filename) fd.append('filename', options.filename);
+  const resp = await fetch('http://localhost:3000/automation/save-upload', { method: 'POST', body: fd });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '保存上传文件失败'));
+  return data as any;
+}

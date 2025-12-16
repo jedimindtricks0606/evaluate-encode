@@ -697,46 +697,14 @@ export default function Automation() {
                         <video src={job.previewUrl || ''} controls className="w-full h-48 rounded" />
                       )}
                       <div className="flex gap-2">
-                        <Button type="dashed" onClick={async () => {
-                          try {
-                            // 优先读取已保存 JSON
-                            if (job.evalSavedJsonPath && !job.evalSummary) {
-                              const url = `http://localhost:3000${job.evalSavedJsonPath.startsWith('/') ? job.evalSavedJsonPath : '/' + job.evalSavedJsonPath}`;
-                              const r = await fetch(url);
-                              if (r.ok) {
-                                const j = await r.json();
-                                const summary = {
-                                  overall: Number(j?.final_score ?? 0),
-                                  vmaf: j?.metrics?.vmaf,
-                                  psnr: j?.metrics?.psnr_db,
-                                  ssim: j?.metrics?.ssim,
-                                  bitrate_after_kbps: (j?.metrics?.bitrate_after_bps ?? 0) / 1000,
-                                };
-                                updateMatrixJob(job.id, { evalSummary: summary });
-                                return;
-                              }
-                            }
-                            // 若无预存结果，则在线评估并保存
-                            if (!job.downloadUrl) { message.warning('该条目尚未完成导出'); return; }
-                            if (!inputFile) { message.warning('请先上传输入视频'); return; }
-                            const resp = await fetch(job.downloadUrl);
-                            if (!resp.ok) { message.error('导出视频下载失败'); return; }
-                            const blob = await resp.blob();
-                            const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
-                            const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: inputDuration || 30, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
-                            const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
-                            const summary = {
-                              overall: Number(evalResp?.final_score ?? 0),
-                              vmaf: evalResp?.metrics?.vmaf,
-                              psnr: evalResp?.metrics?.psnr_db,
-                              ssim: evalResp?.metrics?.ssim,
-                              bitrate_after_kbps: (evalResp?.metrics?.bitrate_after_bps ?? 0) / 1000,
-                            };
-                            updateMatrixJob(job.id, { evalSavedJsonPath: saveJson?.url || null, evalSummary: summary });
-                            message.success('评估完成并已保存');
-                          } catch (e) {
-                            message.error('评估失败');
+                        <Button type="dashed" onClick={() => {
+                          if (!job.downloadUrl) { message.warning('该条目尚未完成导出'); return; }
+                          const state: any = { outputUrl: job.downloadUrl, outputName: job.outputFilename };
+                          if (inputFile) state.originalFile = inputFile;
+                          if (job.evalSavedJsonPath) {
+                            state.resultJsonUrl = `http://localhost:3000${job.evalSavedJsonPath.startsWith('/') ? job.evalSavedJsonPath : '/' + job.evalSavedJsonPath}`;
                           }
+                          navigate('/', { state });
                         }}>质量评估</Button>
                       </div>
                       {job.evalSummary && (

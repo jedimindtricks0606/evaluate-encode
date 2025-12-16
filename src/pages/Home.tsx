@@ -1,7 +1,7 @@
 import { Layout, Row, Col, Typography, Button, Upload, Card, Space, Switch } from 'antd';
 import { PlayCircleOutlined, UploadOutlined, InboxOutlined, VideoCameraOutlined, EyeOutlined, CloseOutlined } from '@ant-design/icons';
 import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '@/components/Layout/Header';
 import QualityEvaluationCard from '@/components/Evaluation/QualityEvaluationCard';
 import SpeedEvaluationCard from '@/components/Evaluation/SpeedEvaluationCard';
@@ -18,6 +18,7 @@ const { Dragger } = Upload;
 
 export default function Home() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo, qualityCache, upsertQualityCache } = useEvaluationStore();
   
   const [exportTime, setExportTime] = useState(30);
@@ -28,6 +29,7 @@ export default function Home() {
   const [originalFps, setOriginalFps] = useState<number | undefined>(undefined);
   const [exportedFps, setExportedFps] = useState<number | undefined>(undefined);
   const [bitrateLoading, setBitrateLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [weights, setWeights] = useState<{ wq: number; ws: number; wb: number }>({ wq: 0.5, ws: 0.25, wb: 0.25 });
   const [qualityParams, setQualityParams] = useState<{ V0: number; k: number }>({ V0: 70, k: 0.2 });
   const [finalScore, setFinalScore] = useState<{ overall: number; quality: number; speed: number; bitrate: number; bitrateRational: number } | null>(null);
@@ -60,23 +62,42 @@ export default function Home() {
     const inputUrl = params.get('inputUrl');
     const inputName = params.get('inputName') || 'input.mp4';
     const resultJsonUrl = params.get('resultJsonUrl');
+    const stateAny = location.state as any;
+    const stateOriginalFile: File | undefined = stateAny?.originalFile;
+    const stateOutputUrl: string | undefined = stateAny?.outputUrl;
+    const stateOutputName: string | undefined = stateAny?.outputName;
     const fetchToFile = async (url: string, name: string) => {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error('下载失败');
       const blob = await resp.blob();
       return new File([blob], name, { type: blob.type || 'video/mp4' });
     };
+    const needSync = (
+      (!!(stateOutputUrl || outputUrl) && !exportedVideo?.raw) ||
+      (!!(stateOriginalFile || inputUrl) && !originalVideo?.raw) ||
+      !!resultJsonUrl
+    );
+    if (needSync) setSyncing(true);
     (async () => {
       try {
-        if (outputUrl && !exportedVideo?.raw) {
-          const f = await fetchToFile(outputUrl, outputName);
+        const effOutputUrl = stateOutputUrl || outputUrl;
+        const effOutputName = stateOutputName || outputName;
+        if (effOutputUrl && !exportedVideo?.raw) {
+          const f = await fetchToFile(effOutputUrl, effOutputName);
           const v = {
             id: 'auto-exported', url: URL.createObjectURL(f), name: f.name, size: f.size,
             duration: 0, resolution: '', codec: '', bitrate: 0, uploadTime: new Date().toISOString(), raw: f,
           };
           setExportedVideo(v);
         }
-        if (inputUrl && !originalVideo?.raw) {
+        if (stateOriginalFile && !originalVideo?.raw) {
+          const f = stateOriginalFile;
+          const v = {
+            id: 'auto-original-url', url: URL.createObjectURL(f), name: f.name, size: f.size,
+            duration: 0, resolution: '', codec: '', bitrate: 0, uploadTime: new Date().toISOString(), raw: f,
+          };
+          setOriginalVideo(v);
+        } else if (inputUrl && !originalVideo?.raw) {
           const f = await fetchToFile(inputUrl, inputName);
           const v = {
             id: 'auto-original-url', url: URL.createObjectURL(f), name: f.name, size: f.size,
@@ -100,9 +121,11 @@ export default function Home() {
           }
         }
       } catch (e) {
+      } finally {
+        setSyncing(false);
       }
     })();
-  }, [originalVideo, exportedVideo]);
+  }, [originalVideo, exportedVideo, location.state]);
 
   const uploadProps = {
     multiple: false,
@@ -448,6 +471,10 @@ export default function Home() {
   const handleOneClickEvaluate = () => {
     (async () => {
       try {
+        if (finalScore && qualityResults && speedResults && bitrateResults) {
+          message.success({ content: '已读取缓存评估结果', key: 'one', duration: 2 });
+          return;
+        }
         if (!originalVideo?.raw || !exportedVideo?.raw) {
           message.warning('请先在下方上传原视频与导出视频');
           uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -458,6 +485,39 @@ export default function Home() {
         // 1) 画质评估：强制计算 VMAF；其他勾选项按需计算（使用缓存）
         const key = `${originalVideo.name}:${originalVideo.size}|${exportedVideo.name}:${exportedVideo.size}`;
         let vmafScore = qualityCache[key]?.vmaf;
+        if (vmafScore != null && speedResults && bitrateResults) {
+          const V0_ = Number(qualityParams.V0 || 70);
+          const k_ = Number(qualityParams.k || 0.2);
+          const vmafClamped_ = Math.max(0, Math.min(100, Number(vmafScore || 0)));
+          const num_ = Math.log(1 + k_ * Math.max(0, vmafClamped_ - V0_));
+          const den_ = Math.log(1 + k_ * Math.max(0, 100 - V0_));
+          const Q_ = den_ > 0 ? Math.max(0, Math.min(1, num_ / den_)) : 0;
+          const timeSec_ = Number(exportTime || 0);
+          const benchSec_ = Number(benchmark || 0);
+          let S_ = 1.0;
+          if (timeSec_ > 0 && benchSec_ > 0) {
+            const slowdown_ = timeSec_ / benchSec_;
+            if (slowdown_ <= 1) S_ = 1.0; else {
+              const ms_ = Number(maxSlowdown || 3.0);
+              S_ = Math.max(0, 1 - (slowdown_ - 1) / Math.max(1e-6, (ms_ - 1)));
+            }
+          }
+          const R_ = (bitrateResults?.exported ?? 0) / 1000;
+          const TARGET_ = Number(targetBitrateKbps || 0) / 1000;
+          const ratio_ = (TARGET_ > 0 && R_ > 0) ? (R_ / TARGET_) : 0;
+          const B_ = (ratio_ > 0) ? (1.0 / (1.0 + Math.pow(ratio_, bitrateK))) : 0.0;
+          const wq_ = Number(weights.wq || 0);
+          const ws_ = Number(weights.ws || 0);
+          const wb_ = Number(weights.wb || 0);
+          const sumW_ = (wq_ + ws_ + wb_) || 1;
+          const overall01_ = (wq_ / sumW_) * Q_ + (ws_ / sumW_) * S_ + (wb_ / sumW_) * B_;
+          setFinalScore({ overall: overall01_ * 100, quality: Q_ * 100, speed: S_ * 100, bitrate: 0, bitrateRational: B_ * 100 });
+          const next_: EvaluationResults = {} as any;
+          next_.vmaf = { score: Math.max(0, Math.min(100, Number(vmafScore || 0))), histogram: [], frameScores: [] };
+          setQualityResults(next_);
+          message.success({ content: '已读取缓存评估结果', key: 'one', duration: 2 });
+          return;
+        }
         if (vmafScore == null) {
           const d = await evaluateVMAF(originalVideo.raw, exportedVideo.raw);
           vmafScore = Number(d?.metrics?.vmaf ?? 0);
@@ -729,6 +789,9 @@ export default function Home() {
       <Header onOneClickEvaluate={handleOneClickEvaluate} />
       
       <Content className="p-6">
+        {syncing && (
+          <div className="mb-4 p-3 rounded border border-blue-200 bg-blue-50 text-blue-700">正在同步中...</div>
+        )}
 
         {/* 上传模块 */}
         <div ref={uploadSectionRef} className="mb-6">
