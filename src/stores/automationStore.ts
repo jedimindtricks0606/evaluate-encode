@@ -46,7 +46,7 @@ export const useAutomationStore = create<AutomationState>((set) => ({
   inputFile: null,
   jobDownloadUrl: null,
   autoSavedPath: null,
-  mode: 'single',
+  mode: 'matrix',
   matrixJobs: [],
   benchmarkDurationMs: null,
   setServerIp: (ip) => set({ serverIp: ip }),

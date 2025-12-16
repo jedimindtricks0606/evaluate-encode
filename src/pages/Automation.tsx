@@ -48,6 +48,9 @@ export default function Automation() {
   const [matrixProfile, setMatrixProfile] = useState<string>('high');
   const [matrixSubmitting, setMatrixSubmitting] = useState(false);
   const [batchEvaluating, setBatchEvaluating] = useState(false);
+  const [matrixAllRunning, setMatrixAllRunning] = useState(false);
+  const [matrixExported, setMatrixExported] = useState(false);
+  const [matrixAllChosen, setMatrixAllChosen] = useState(false);
   const [csvModalVisible, setCsvModalVisible] = useState(false);
   const [csvFilename, setCsvFilename] = useState<string>('');
 
@@ -385,6 +388,8 @@ export default function Automation() {
               <Button type="primary" loading={matrixSubmitting} onClick={async () => {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  setMatrixExported(true);
+                  setMatrixAllChosen(false);
                   setMatrixSubmitting(true);
                   // benchmark
                   try {
@@ -466,8 +471,114 @@ export default function Automation() {
                 } finally {
                   setMatrixSubmitting(false);
                 }
-              }}>提交矩阵任务</Button>
-              {matrixJobs.some(j => j.downloadUrl) && (
+              }}>矩阵导出</Button>
+              {!matrixExported && (
+              <Button loading={matrixAllRunning} onClick={async () => {
+                try {
+                  if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  setMatrixAllChosen(true);
+                  setMatrixExported(false);
+                  setMatrixAllRunning(true);
+                  try {
+                    const codec0 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                    const presetFast0 = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
+                    const benchOut0 = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
+                    const benchCmd0 = `ffmpeg -y -i {input} -c:v ${codec0} -preset ${presetFast0} -c:a copy {output}`;
+                    const benchResp0 = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: benchCmd0, outputFilename: benchOut0 });
+                    if (benchResp0?.status === 'success' && benchResp0?.duration_ms != null) {
+                      setBenchmarkDurationMs(Number(benchResp0.duration_ms));
+                    } else {
+                      setBenchmarkDurationMs(null);
+                    }
+                  } catch (_) {
+                    setBenchmarkDurationMs(null);
+                  }
+                  const presets0 = matrixPresets.split(',').map(s => s.trim()).filter(Boolean);
+                  const bitrates0 = matrixBitrates.split(',').map(s => s.trim()).filter(Boolean);
+                  const maxrates0 = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
+                  const bufsizes0 = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
+                  const cqs0 = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
+                  const codec1 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                  const jobs0 = [] as any[];
+                  const now0 = Date.now();
+                  for (const preset of (presets0.length ? presets0 : ['p7'])) {
+                    for (const b of (bitrates0.length ? bitrates0 : ['8M'])) {
+                      for (const mr of (maxrates0.length ? maxrates0 : [b])) {
+                        for (const bs of (bufsizes0.length ? bufsizes0 : ['12M'])) {
+                          for (const cq of (cqs0.length ? cqs0 : ['23'])) {
+                            const outfile = `auto_${matrixEncoder}_${preset}_${b}_${cq}_${now0}.mp4`;
+                            const params = [
+                              `-c:v ${codec1}`,
+                              `-preset ${preset}`,
+                              `-b:v ${b}`,
+                              `-maxrate ${mr}`,
+                              `-bufsize ${bs}`,
+                              `-rc:v ${matrixRcMode}`,
+                              `-cq:v ${cq}`,
+                              `-temporal-aq ${matrixTemporalAQ ? 1 : 0}`,
+                              `-spatial-aq ${matrixSpatialAQ ? 1 : 0}`,
+                              `-profile:v ${matrixProfile}`,
+                              `-c:a copy`,
+                            ].join(' ');
+                            const command = `ffmpeg -y -i {input} ${params} {output}`;
+                            jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq }, command, outputFilename: outfile });
+                          }
+                        }
+                      }
+                    }
+                  }
+                  addMatrixJobs(jobs0);
+                  const evalPromises: Promise<void>[] = [];
+                  for (const job of jobs0) {
+                    try {
+                      const resp2 = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: job.command, outputFilename: job.outputFilename });
+                      if (resp2.status === 'success') {
+                        const dp2 = String(resp2.download_path || '');
+                        const full2 = `http://${serverIp}:${serverPort}${dp2}`;
+                        const durMs2 = resp2.duration_ms != null ? Number(resp2.duration_ms) : null;
+                        updateMatrixJob(job.id, { downloadUrl: full2, exportDurationMs: durMs2 });
+                        const saveResp2 = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full2, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
+                        updateMatrixJob(job.id, { savedPath: saveResp2.saved_path || null });
+                        try {
+                          const f2 = await fetch(full2);
+                          const blob2 = await f2.blob();
+                          const obj2 = URL.createObjectURL(blob2);
+                          updateMatrixJob(job.id, { previewUrl: obj2 });
+                        } catch (_) {}
+                        const p = (async () => {
+                          try {
+                            const f3 = await fetch(full2);
+                            if (f3.ok) {
+                              const blob3 = await f3.blob();
+                              const afterFile3 = new File([blob3], job.outputFilename, { type: blob3.type || 'video/mp4' });
+                              const expSecVal = durMs2 ? (durMs2 / 1000) : (inputDuration || 30);
+                              const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                              const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
+                              const summary3 = {
+                                overall: Number(evalResp3?.final_score ?? 0),
+                                vmaf: evalResp3?.metrics?.vmaf,
+                                psnr: evalResp3?.metrics?.psnr_db,
+                                ssim: evalResp3?.metrics?.ssim,
+                                bitrate_after_kbps: (evalResp3?.metrics?.bitrate_after_bps ?? 0) / 1000,
+                              };
+                              updateMatrixJob(job.id, { evalSavedJsonPath: saveJson3?.url || null, evalSummary: summary3 });
+                            }
+                          } catch (_) {}
+                        })();
+                        evalPromises.push(p);
+                      }
+                    } catch (_) {}
+                  }
+                  await Promise.all(evalPromises);
+                  message.success('矩阵评估完成');
+                } catch (e) {
+                  message.error('矩阵评估失败');
+                } finally {
+                  setMatrixAllRunning(false);
+                }
+              }}>矩阵评估</Button>
+              )}
+              {matrixJobs.some(j => j.downloadUrl) && matrixExported && !matrixAllChosen && (
               <Button loading={batchEvaluating} onClick={async () => {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
