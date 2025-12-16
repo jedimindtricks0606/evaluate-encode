@@ -24,6 +24,7 @@ export default function Automation() {
     autoSavedPath, setAutoSavedPath,
     mode, setMode,
     matrixJobs, addMatrixJobs, updateMatrixJob,
+    benchmarkDurationMs, setBenchmarkDurationMs,
   } = useAutomationStore();
   const [pingLoading, setPingLoading] = useState(false);
   const [serverHealth, setServerHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
@@ -34,6 +35,7 @@ export default function Automation() {
   const [inputResolution, setInputResolution] = useState<string | null>(null);
   const [inputBitrateKbps, setInputBitrateKbps] = useState<number | null>(null);
   const [savingAuto, setSavingAuto] = useState(false);
+  const [singleExportDurationMs, setSingleExportDurationMs] = useState<number | null>(null);
   const [matrixEncoder, setMatrixEncoder] = useState<'x264' | 'x265' | 'nvenc'>('nvenc');
   const [matrixPresets, setMatrixPresets] = useState<string>('p7,p6');
   const [matrixBitrates, setMatrixBitrates] = useState<string>('8M,10M');
@@ -122,6 +124,7 @@ export default function Automation() {
       const dp = String(resp.download_path || '');
       const full = `http://${serverIp}:${serverPort}${dp}`;
       setJobDownloadUrl(full);
+      if (resp.duration_ms != null) setSingleExportDurationMs(Number(resp.duration_ms));
       message.success({ content: '任务已提交', key: 'auto', duration: 2 });
       // 自动下载并保存到本地
       try {
@@ -306,6 +309,12 @@ export default function Automation() {
                   <Text className="break-all">{jobDownloadUrl}</Text>
                 </div>
               )}
+              {singleExportDurationMs != null && (
+                <div className="mt-2">
+                  <Text type="secondary" className="block mb-1">导出时间</Text>
+                  <Text strong>{(singleExportDurationMs / 1000).toFixed(2)} 秒</Text>
+                </div>
+              )}
             </div>
           </Space>
         </Card>
@@ -377,6 +386,21 @@ export default function Automation() {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
                   setMatrixSubmitting(true);
+                  // benchmark
+                  try {
+                    const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                    const presetFast = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
+                    const benchOut = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
+                    const benchCmd = `ffmpeg -y -i {input} -c:v ${codec} -preset ${presetFast} -c:a copy {output}`;
+                    const benchResp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: benchCmd, outputFilename: benchOut });
+                    if (benchResp?.status === 'success' && benchResp?.duration_ms != null) {
+                      setBenchmarkDurationMs(Number(benchResp.duration_ms));
+                    } else {
+                      setBenchmarkDurationMs(null);
+                    }
+                  } catch (_) {
+                    setBenchmarkDurationMs(null);
+                  }
                   const presets = matrixPresets.split(',').map(s => s.trim()).filter(Boolean);
                   const bitrates = matrixBitrates.split(',').map(s => s.trim()).filter(Boolean);
                   const maxrates = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
@@ -419,7 +443,8 @@ export default function Automation() {
                       if (resp.status === 'success') {
                         const dp = String(resp.download_path || '');
                         const full = `http://${serverIp}:${serverPort}${dp}`;
-                        updateMatrixJob(job.id, { downloadUrl: full });
+                        const durMs = resp.duration_ms != null ? Number(resp.duration_ms) : null;
+                        updateMatrixJob(job.id, { downloadUrl: full, exportDurationMs: durMs });
                         // auto save locally
                         const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
                         updateMatrixJob(job.id, { savedPath: saveResp.saved_path || null });
@@ -455,7 +480,8 @@ export default function Automation() {
                       if (!resp.ok) continue;
                       const blob = await resp.blob();
                       const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
-                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: inputDuration || 30, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const expSec = job.exportDurationMs ? (job.exportDurationMs / 1000) : (inputDuration || 30);
+                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
                       const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary = {
                         overall: Number(evalResp?.final_score ?? 0),
@@ -485,9 +511,9 @@ export default function Automation() {
             </div>
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={async () => {
               try {
-                const header = [
-                  'encoder','preset','b_v','maxrate','bufsize','rc','cq','temporal_aq','spatial_aq','profile','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','download_url','saved_path','eval_json_url'
-                ];
+                  const header = [
+                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','temporal_aq','spatial_aq','profile','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
+                  ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
                   const v = [
@@ -506,11 +532,12 @@ export default function Automation() {
                     String(j.evalSummary?.vmaf ?? ''),
                     String(j.evalSummary?.psnr ?? ''),
                     String(j.evalSummary?.ssim ?? ''),
-                    String(j.evalSummary?.bitrate_after_kbps ?? ''),
-                    j.downloadUrl || '',
-                    j.savedPath || '',
-                    j.evalSavedJsonPath || ''
-                  ];
+                      String(j.evalSummary?.bitrate_after_kbps ?? ''),
+                      j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                      j.downloadUrl || '',
+                      j.savedPath || '',
+                      j.evalSavedJsonPath || ''
+                    ];
                   return v.map(s => {
                     const str = String(s ?? '');
                     if (str.includes(',') || str.includes('\n') || str.includes('"')) {
@@ -544,6 +571,13 @@ export default function Automation() {
             </Modal>
 
             <div className="grid grid-cols-12 gap-6">
+              {benchmarkDurationMs != null && (
+                <div className="col-span-12">
+                  <div className="p-3 bg-gray-50 rounded">
+                    <Text strong>Benchmark 导出时间：{(Number(benchmarkDurationMs)/1000).toFixed(2)} 秒</Text>
+                  </div>
+                </div>
+              )}
               {matrixJobs.map(job => (
                 <div key={job.id} className="col-span-6">
                   <Card size="small" title={job.outputFilename} extra={job.downloadUrl ? <a href={job.downloadUrl} target="_blank" rel="noreferrer">下载</a> : null}>
@@ -602,6 +636,7 @@ export default function Automation() {
                             <tr><td>PSNR(dB)</td><td>{job.evalSummary.psnr ?? '-'}</td></tr>
                             <tr><td>SSIM</td><td>{job.evalSummary.ssim ?? '-'}</td></tr>
                             <tr><td>码率(kbps)</td><td>{job.evalSummary.bitrate_after_kbps ?? '-'}</td></tr>
+                            {job.exportDurationMs != null && (<tr><td>导出时间(秒)</td><td>{(Number(job.exportDurationMs)/1000).toFixed(2)}</td></tr>)}
                           </tbody>
                         </table>
                       )}

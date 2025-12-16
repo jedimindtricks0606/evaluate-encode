@@ -11,6 +11,7 @@ interface MatrixJob {
   previewUrl?: string | null;
   evalSavedJsonPath?: string | null;
   evalSummary?: Record<string, any> | null;
+  exportDurationMs?: number | null;
 }
 
 interface AutomationState {
@@ -23,6 +24,7 @@ interface AutomationState {
   autoSavedPath: string | null;
   mode: 'single' | 'matrix';
   matrixJobs: MatrixJob[];
+  benchmarkDurationMs: number | null;
   setServerIp: (ip: string) => void;
   setServerPort: (port: number) => void;
   setFfmpegCommand: (cmd: string) => void;
@@ -33,6 +35,7 @@ interface AutomationState {
   setMode: (m: 'single' | 'matrix') => void;
   addMatrixJobs: (jobs: MatrixJob[]) => void;
   updateMatrixJob: (id: string, patch: Partial<MatrixJob>) => void;
+  setBenchmarkDurationMs: (ms: number | null) => void;
 }
 
 export const useAutomationStore = create<AutomationState>((set) => ({
@@ -45,6 +48,7 @@ export const useAutomationStore = create<AutomationState>((set) => ({
   autoSavedPath: null,
   mode: 'single',
   matrixJobs: [],
+  benchmarkDurationMs: null,
   setServerIp: (ip) => set({ serverIp: ip }),
   setServerPort: (port) => set({ serverPort: port }),
   setFfmpegCommand: (cmd) => set({ ffmpegCommand: cmd }),
@@ -55,4 +59,5 @@ export const useAutomationStore = create<AutomationState>((set) => ({
   setMode: (m) => set({ mode: m }),
   addMatrixJobs: (jobs) => set(state => ({ matrixJobs: [...state.matrixJobs, ...jobs] })),
   updateMatrixJob: (id, patch) => set(state => ({ matrixJobs: state.matrixJobs.map(j => j.id === id ? { ...j, ...patch } : j) })),
+  setBenchmarkDurationMs: (ms) => set({ benchmarkDurationMs: ms }),
 }));

@@ -58,7 +58,7 @@ export async function automationUpload(options: {
   file: File;
   command: string;
   outputFilename?: string;
-}): Promise<{ status: string; message?: string; job_id?: string; input?: string; output?: string; download_path?: string }> {
+}): Promise<{ status: string; message?: string; job_id?: string; input?: string; output?: string; download_path?: string; duration_ms?: number }> {
   const fd = new FormData();
   fd.append('file', options.file);
   fd.append('command', options.command);
