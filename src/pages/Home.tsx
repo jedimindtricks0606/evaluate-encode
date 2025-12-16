@@ -1,4 +1,4 @@
-import { Layout, Row, Col, Typography, Button, Upload, Card, Space } from 'antd';
+import { Layout, Row, Col, Typography, Button, Upload, Card, Space, Switch } from 'antd';
 import { PlayCircleOutlined, UploadOutlined, InboxOutlined, VideoCameraOutlined, EyeOutlined, CloseOutlined } from '@ant-design/icons';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -32,6 +32,11 @@ export default function Home() {
   const [qualityParams, setQualityParams] = useState<{ V0: number; k: number }>({ V0: 70, k: 0.2 });
   const [finalScore, setFinalScore] = useState<{ overall: number; quality: number; speed: number; bitrate: number; bitrateRational: number } | null>(null);
   const [efficiencyRatio, setEfficiencyRatio] = useState<number | null>(null);
+  const [targetBitrateKbps, setTargetBitrateKbps] = useState(2200);
+  const [codec, setCodec] = useState<'h264' | 'h265'>('h264');
+  const [bitrateK, setBitrateK] = useState(2.5);
+  const [maxSlowdown, setMaxSlowdown] = useState(3.0);
+  const [autoTargetBitrate, setAutoTargetBitrate] = useState(true);
 
   const originalNotifiedRef = useRef(false);
   const exportedNotifiedRef = useRef(false);
@@ -130,6 +135,33 @@ export default function Home() {
       }
     }
   }, [originalVideo?.resolution, exportedVideo?.resolution, originalFps, exportedFps]);
+
+  useEffect(() => {
+    if (!autoTargetBitrate) return;
+    const resStr = exportedVideo?.resolution || originalVideo?.resolution || '';
+    const m = resStr.match(/(\d+)x(\d+)/i);
+    const H = m ? Number(m[2]) : 0;
+    const fps = (exportedFps ?? originalFps ?? 30);
+    const f = fps && fps > 0 ? Number(fps) : 30;
+    let base = 2200;
+    if (codec === 'h264') {
+      if (H >= 2100) base = 15000;
+      else if (H >= 1400) base = 6500;
+      else if (H >= 1080) base = 2200;
+      else if (H >= 720) base = 1800;
+      else if (H >= 540) base = 1200;
+      else base = 1200;
+    } else {
+      if (H >= 2100) base = 8000;
+      else if (H >= 1400) base = 3500;
+      else if (H >= 1080) base = 1200;
+      else if (H >= 720) base = 1000;
+      else if (H >= 540) base = 700;
+      else base = 700;
+    }
+    const scaled = Math.round(base * (f / 30));
+    setTargetBitrateKbps(scaled);
+  }, [autoTargetBitrate, codec, exportedVideo?.resolution, originalVideo?.resolution, exportedFps, originalFps]);
 
   const handleQualityEvaluate = async () => {
     try {
@@ -346,30 +378,9 @@ export default function Home() {
         // 单视频场景下的归一化：直接设为 1.0；多视频场景需要在列表上做 min-max 归一
         const E = (E_raw > 0) ? 1.0 : 0.0;
 
-        // 3b) 码率合理性评分 B：MABR 计算（默认 codec=h264，短视频平台 1080p=3000）
-        const approx = (a: number, b: number, tol = 0.08) => {
-          if (!a || !b) return false;
-          return Math.abs(a - b) / Math.max(a, b) <= tol;
-        };
-        let MABR_base = 0; // kbps @30fps
-        if (approx(W, 854) && approx(H, 480)) MABR_base = 1200;
-        else if (approx(W, 960) && approx(H, 540)) MABR_base = 1600;
-        else if (approx(W, 1280) && approx(H, 720)) MABR_base = 2500;
-        else if (approx(W, 1920) && approx(H, 1080)) MABR_base = 3000; // 短视频平台
-        else if (approx(W, 2560) && approx(H, 1440)) MABR_base = 9000;
-        else if (approx(W, 3840) && approx(H, 2160)) MABR_base = 18000;
-        else {
-          const pixels_per_sec_30 = W * H * 30;
-          MABR_base = Math.max(500, Math.min(50000, Math.floor(36 * pixels_per_sec_30 / 1_000_000)));
-        }
-        const fpsReal = fpsAfter > 0 ? fpsAfter : 30;
-        let MABR = MABR_base * (fpsReal / 30.0);
-        let codec: string = 'h264';
-        if (codec === 'h265') MABR *= (20 / 36);
-        if (codec === 'av1') MABR *= (18 / 36);
-        const R = afterKbps; // kbps
-        const ratio = (MABR > 0 && R > 0) ? (R / MABR) : 0;
-        const B = (ratio > 0) ? (1.0 / (1.0 + Math.pow(ratio, 2.5))) : 0.0;
+        const R = afterKbps;
+        const ratio = (targetBitrateKbps > 0 && R > 0) ? (R / targetBitrateKbps) : 0;
+        const B = (ratio > 0) ? (1.0 / (1.0 + Math.pow(ratio, bitrateK))) : 0.0;
 
         // 4) 画质感知映射 Q
         const Q_percept = Q;
@@ -453,33 +464,14 @@ export default function Home() {
     const mm = resStr ? resStr.match(/(\d+)x(\d+)/i) : null;
     const W = mm ? Number(mm[1]) : 0;
     const H = mm ? Number(mm[2]) : 0;
-    const approx = (a: number, b: number, tol = 0.08) => {
-      if (!a || !b) return false;
-      return Math.abs(a - b) / Math.max(a, b) <= tol;
-    };
-    let MABR_base = 0; // kbps @30fps
-    if (approx(W, 854) && approx(H, 480)) MABR_base = 1200;
-    else if (approx(W, 960) && approx(H, 540)) MABR_base = 1600;
-    else if (approx(W, 1280) && approx(H, 720)) MABR_base = 2500;
-    else if (approx(W, 1920) && approx(H, 1080)) MABR_base = 3000;
-    else if (approx(W, 2560) && approx(H, 1440)) MABR_base = 9000;
-    else if (approx(W, 3840) && approx(H, 2160)) MABR_base = 18000;
-    else {
-      const pixels_per_sec_30 = W * H * 30;
-      MABR_base = Math.max(500, Math.min(50000, Math.floor(36 * pixels_per_sec_30 / 1_000_000)));
-    }
-    const fpsReal = (fpsAfter ?? 0) > 0 ? Number(fpsAfter) : 30;
-    let MABR = MABR_base * (fpsReal / 30.0);
-    let codec: string = 'h264';
-    if (codec === 'h265') MABR *= (20 / 36);
-    if (codec === 'av1') MABR *= (18 / 36);
-    const R = afterKbps; // kbps
-    const ratio = (MABR > 0 && R > 0) ? (R / MABR) : 0;
-    const B = (ratio > 0) ? (1.0 / (1.0 + Math.pow(ratio, 2.5))) : 0.0;
+    const R = afterKbps;
+    const ratio = (targetBitrateKbps > 0 && R > 0) ? (R / targetBitrateKbps) : 0;
+    const B = (ratio > 0) ? (1.0 / (1.0 + Math.pow(ratio, bitrateK))) : 0.0;
     const report = {
       timestamp: new Date().toISOString(),
       weights,
       quality_params: { V0, k },
+      bitrate_params: { target_kbps: targetBitrateKbps, codec, k: bitrateK },
       source: src,
       encoded: dst,
       metrics: {
@@ -500,8 +492,6 @@ export default function Home() {
         E_log,
         E,
         B,
-        MABR_base,
-        MABR,
         ratio,
         S,
         overall01: finalScore ? (finalScore.overall / 100) : (() => { const wq = Number(weights.wq||0); const ws = Number(weights.ws||0); const wb = Number(weights.wb||0); const sumW = (wq+ws+wb)||1; return (wq/sumW)*Q + (ws/sumW)*S + (wb/sumW)*B; })(),
@@ -710,25 +700,25 @@ export default function Home() {
             <Row gutter={16}>
               <Col span={12}>
                 <Card className="shadow-sm">
-                  <Title level={4} className="!mb-4">权重与画质映射</Title>
+                  <Title level={4} className="!mb-4">综合评估</Title>
                   <Space className="w-full" orientation="vertical" size="large">
                     <div className="grid grid-cols-3 gap-4">
                       <div>
-                        <Text className="block mb-1">w_q（画质）</Text>
+                        <Text className="block mb-1">画质权重</Text>
                         <input type="number" step="0.01" value={weights.wq} onChange={(e) => setWeights({ ...weights, wq: Number(e.target.value) })} className="border rounded px-2 py-1 w-full" />
                       </div>
                       <div>
-                        <Text className="block mb-1">w_s（速度）</Text>
+                        <Text className="block mb-1">速度权重</Text>
                         <input type="number" step="0.01" value={weights.ws} onChange={(e) => setWeights({ ...weights, ws: Number(e.target.value) })} className="border rounded px-2 py-1 w-full" />
                       </div>
                       <div>
-                        <Text className="block mb-1">w_bitrate（码率合理性）</Text>
+                        <Text className="block mb-1">码率权重</Text>
                         <input type="number" step="0.01" value={weights.wb} onChange={(e) => setWeights({ ...weights, wb: Number(e.target.value) })} className="border rounded px-2 py-1 w-full" />
                       </div>
                     </div>
                     <div className="h-px bg-gray-200 my-2" />
                     <div>
-                      <Text className="block mb-1">画质归一化方法（VMAF 映射）</Text>
+                      <Text className="block mb-1">画质归一化（VMAF 映射）评价</Text>
                       <div className="text-gray-500 text-sm">
                         <span>使用 VMAF 作为画质指标，将其非线性归一化为 Q∈[0,1]：</span>
                         <div>
@@ -748,6 +738,52 @@ export default function Home() {
                       <div>
                         <Text className="block mb-1">k（饱和速度）</Text>
                         <input type="number" step="0.01" value={qualityParams.k} onChange={(e) => setQualityParams({ ...qualityParams, k: Number(e.target.value) })} className="border rounded px-2 py-1 w-full" />
+                      </div>
+                    </div>
+                    <div className="h-px bg-gray-200 my-2" />
+                    <div>
+                      <Text className="block mb-1">导出速度评价</Text>
+                      <div className="text-gray-500 text-sm">
+                        <div>若无耗时输入，S = 1.0；存在多方案耗时时，采用线性关系。</div>
+                        <div>T<sub>min</sub> 为最快耗时，slowdown = T ÷ T<sub>min</sub></div>
+                        <div>S = max(0, 1 − (slowdown − 1) ÷ (MAX_SLOWDOWN − 1))</div>
+                      </div>
+                    </div>
+                    <div className="h-px bg-gray-200 my-2" />
+                    <div>
+                      <Text className="block mb-1">码率合理性评价</Text>
+                      <div className="text-gray-500 text-sm">
+                        <div>R 为实际码率（kbps），TARGET 为目标码率（Mbps）</div>
+                        <div>ratio = R ÷ TARGET</div>
+                        <div>
+                          B = 1 ÷ (1 + ratio
+                          <sup>k</sup>
+                          )
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <Text className="block mb-1">目标码率（Mbps）</Text>
+                          <Space size="small" align="center">
+                            <Text type="secondary" className="text-xs">自动推荐</Text>
+                            <Switch size="small" checked={autoTargetBitrate} onChange={(v) => setAutoTargetBitrate(v)} />
+                          </Space>
+                        </div>
+                        <input type="number" step="0.1" value={targetBitrateKbps ? (targetBitrateKbps / 1000) : 0} onChange={(e) => setTargetBitrateKbps(Math.round(Number(e.target.value) * 1000))} disabled={autoTargetBitrate} className="border rounded px-2 py-1 w-full" />
+                        <Text type="secondary" className="block text-xs mt-1">基于分辨率+帧率+编码格式推荐</Text>
+                      </div>
+                      <div>
+                        <Text className="block mb-1">编码格式</Text>
+                        <select value={codec} onChange={(e) => setCodec(e.target.value as 'h264' | 'h265')} className="border rounded px-2 py-1 w-full">
+                          <option value="h264">H.264</option>
+                          <option value="h265">H.265</option>
+                        </select>
+                      </div>
+                      <div>
+                        <Text className="block mb-1">码率惩罚陡峭度 k</Text>
+                        <input type="number" step="0.1" value={bitrateK} onChange={(e) => setBitrateK(Number(e.target.value))} className="border rounded px-2 py-1 w-full" />
                       </div>
                     </div>
                     <div className="flex gap-3">
