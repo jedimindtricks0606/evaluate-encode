@@ -456,6 +456,44 @@ app.post('/automation/save', express.json(), async (req, res) => {
   }
 });
 
+// serve saved files directory for easy access
+try {
+  const SAVED_DIR = '/Users/jinghuan/evaluate-server';
+  if (!fs.existsSync(SAVED_DIR)) fs.mkdirSync(SAVED_DIR, { recursive: true });
+  app.use('/files', express.static(SAVED_DIR));
+} catch (_) {}
+
+// save arbitrary JSON content
+app.post('/automation/save-json', express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const data = req.body?.data;
+    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const filename = req.body?.filename || `evaluation_${Date.now()}.json`;
+    if (!data) return res.status(400).json({ status: 'error', message: 'missing data' });
+    if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+    const outPath = path.join(saveDir, filename);
+    fs.writeFileSync(outPath, typeof data === 'string' ? data : JSON.stringify(data, null, 2), 'utf8');
+    return res.json({ status: 'success', saved_path: outPath, url: `/files/${filename}` });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'save json failed', detail: String(e && e.message || e) });
+  }
+});
+
+app.post('/automation/save-csv', express.json({ limit: '10mb' }), async (req, res) => {
+  try {
+    const csv = req.body?.csv;
+    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const filename = req.body?.filename || `matrix_evaluation_${Date.now()}.csv`;
+    if (!csv) return res.status(400).json({ status: 'error', message: 'missing csv' });
+    if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+    const outPath = path.join(saveDir, filename);
+    fs.writeFileSync(outPath, String(csv), 'utf8');
+    return res.json({ status: 'success', saved_path: outPath, url: `/files/${filename}` });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'save csv failed', detail: String(e && e.message || e) });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

@@ -55,3 +55,8 @@
     margin-bottom: 16px;
   }
 }
+
+/* Segmented 选中项高亮为蓝色 */
+.ant-segmented-item-selected .ant-segmented-item-label {
+  color: #1677ff !important;
+}

@@ -1,4 +1,4 @@
-import { Layout, Typography, Card, Space, Button, Upload, Row, Col, message } from 'antd';
+import { Layout, Typography, Card, Space, Button, Upload, Row, Col, message, Segmented, Input, Modal } from 'antd';
 import { InboxOutlined, PlayCircleOutlined, CloseOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -9,6 +9,7 @@ import { useAutomationStore } from '@/stores/automationStore';
 const { Content } = Layout;
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
+const { TextArea } = Input;
 
 export default function Automation() {
   const navigate = useNavigate();
@@ -21,6 +22,8 @@ export default function Automation() {
     inputFile, setInputFile,
     jobDownloadUrl, setJobDownloadUrl,
     autoSavedPath, setAutoSavedPath,
+    mode, setMode,
+    matrixJobs, addMatrixJobs, updateMatrixJob,
   } = useAutomationStore();
   const [pingLoading, setPingLoading] = useState(false);
   const [serverHealth, setServerHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
@@ -31,6 +34,20 @@ export default function Automation() {
   const [inputResolution, setInputResolution] = useState<string | null>(null);
   const [inputBitrateKbps, setInputBitrateKbps] = useState<number | null>(null);
   const [savingAuto, setSavingAuto] = useState(false);
+  const [matrixEncoder, setMatrixEncoder] = useState<'x264' | 'x265' | 'nvenc'>('nvenc');
+  const [matrixPresets, setMatrixPresets] = useState<string>('p7,p6');
+  const [matrixBitrates, setMatrixBitrates] = useState<string>('8M,10M');
+  const [matrixMaxrates, setMatrixMaxrates] = useState<string>('10M');
+  const [matrixBufsizes, setMatrixBufsizes] = useState<string>('12M');
+  const [matrixRcMode, setMatrixRcMode] = useState<string>('vbr');
+  const [matrixCqValues, setMatrixCqValues] = useState<string>('23');
+  const [matrixTemporalAQ, setMatrixTemporalAQ] = useState<boolean>(true);
+  const [matrixSpatialAQ, setMatrixSpatialAQ] = useState<boolean>(true);
+  const [matrixProfile, setMatrixProfile] = useState<string>('high');
+  const [matrixSubmitting, setMatrixSubmitting] = useState(false);
+  const [batchEvaluating, setBatchEvaluating] = useState(false);
+  const [csvModalVisible, setCsvModalVisible] = useState(false);
+  const [csvFilename, setCsvFilename] = useState<string>('');
 
   const automationUploadProps = {
     multiple: false,
@@ -166,9 +183,13 @@ export default function Automation() {
     <Layout className="min-h-screen bg-gray-50">
       <Header showOneClickEvaluate={false} />
       <Content className="p-6">
-        <Title level={2} className="!mb-4">自动化测试</Title>
+        <div className="flex items-center justify-between mb-4">
+          <Title level={2} className="!mb-0">自动化测试</Title>
+          <Segmented options={[{ label: '单点导出', value: 'single' }, { label: '矩阵导出', value: 'matrix' }]} value={mode} onChange={(v) => setMode(v as any)} size="large" />
+        </div>
         <Card className="shadow-sm">
           <Space className="w-full" orientation="vertical" size="large">
+            
             <Row gutter={16}>
               <Col span={12}>
                 <div className="flex items-center justify-between">
@@ -248,6 +269,7 @@ export default function Automation() {
           </Space>
         </Card>
 
+        {mode === 'single' && (
         <Card className="shadow-sm mt-4" title="单点导出">
           <Space className="w-full" orientation="vertical" size="large">
             <div>
@@ -287,6 +309,311 @@ export default function Automation() {
             </div>
           </Space>
         </Card>
+        )}
+
+        {mode === 'matrix' && (
+        <Card className="shadow-sm mt-4" title="矩阵导出">
+          <Space className="w-full" orientation="vertical" size="large">
+            <Row gutter={16}>
+              <Col span={6}>
+                <Text className="block mb-1">编码器</Text>
+                <select value={matrixEncoder} onChange={(e) => setMatrixEncoder(e.target.value as any)} className="border rounded px-2 py-1 w-full">
+                  <option value="x264">x264</option>
+                  <option value="x265">x265</option>
+                  <option value="nvenc">nvenc</option>
+                </select>
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">preset（逗号分隔）</Text>
+                <input type="text" value={matrixPresets} onChange={(e) => setMatrixPresets(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="p7,p6" />
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">b:v（逗号分隔）</Text>
+                <input type="text" value={matrixBitrates} onChange={(e) => setMatrixBitrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="8M,10M" />
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">maxrate（逗号分隔）</Text>
+                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="10M" />
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Text className="block mb-1">bufsize（逗号分隔）</Text>
+                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="12M" />
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">rc 模式</Text>
+                <select value={matrixRcMode} onChange={(e) => setMatrixRcMode(e.target.value)} className="border rounded px-2 py-1 w-full">
+                  <option value="vbr">vbr</option>
+                  <option value="cbr">cbr</option>
+                  <option value="constqp">constqp</option>
+                </select>
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">cq（逗号分隔）</Text>
+                <input type="text" value={matrixCqValues} onChange={(e) => setMatrixCqValues(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="23,28" />
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">profile</Text>
+                <input type="text" value={matrixProfile} onChange={(e) => setMatrixProfile(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="high" />
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={matrixTemporalAQ} onChange={(e) => setMatrixTemporalAQ(e.target.checked)} />
+                  <Text>temporal-aq</Text>
+                </label>
+              </Col>
+              <Col span={6}>
+                <label className="inline-flex items-center gap-2">
+                  <input type="checkbox" checked={matrixSpatialAQ} onChange={(e) => setMatrixSpatialAQ(e.target.checked)} />
+                  <Text>spatial-aq</Text>
+                </label>
+              </Col>
+            </Row>
+            <div className="flex gap-3">
+              <Button type="primary" loading={matrixSubmitting} onClick={async () => {
+                try {
+                  if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  setMatrixSubmitting(true);
+                  const presets = matrixPresets.split(',').map(s => s.trim()).filter(Boolean);
+                  const bitrates = matrixBitrates.split(',').map(s => s.trim()).filter(Boolean);
+                  const maxrates = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
+                  const bufsizes = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
+                  const cqs = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
+                  const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                  const jobs = [] as any[];
+                  const now = Date.now();
+                  for (const preset of (presets.length ? presets : ['p7'])) {
+                    for (const b of (bitrates.length ? bitrates : ['8M'])) {
+                      for (const mr of (maxrates.length ? maxrates : [b])) {
+                        for (const bs of (bufsizes.length ? bufsizes : ['12M'])) {
+                          for (const cq of (cqs.length ? cqs : ['23'])) {
+                            const outfile = `auto_${matrixEncoder}_${preset}_${b}_${cq}_${now}.mp4`;
+                            const params = [
+                              `-c:v ${codec}`,
+                              `-preset ${preset}`,
+                              `-b:v ${b}`,
+                              `-maxrate ${mr}`,
+                              `-bufsize ${bs}`,
+                              `-rc:v ${matrixRcMode}`,
+                              `-cq:v ${cq}`,
+                              `-temporal-aq ${matrixTemporalAQ ? 1 : 0}`,
+                              `-spatial-aq ${matrixSpatialAQ ? 1 : 0}`,
+                              `-profile:v ${matrixProfile}`,
+                              `-c:a copy`,
+                            ].join(' ');
+                            const command = `ffmpeg -y -i {input} ${params} {output}`;
+                            jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq }, command, outputFilename: outfile });
+                          }
+                        }
+                      }
+                    }
+                  }
+                  addMatrixJobs(jobs);
+                  // submit sequentially
+                  for (const job of jobs) {
+                    try {
+                      const resp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: job.command, outputFilename: job.outputFilename });
+                      if (resp.status === 'success') {
+                        const dp = String(resp.download_path || '');
+                        const full = `http://${serverIp}:${serverPort}${dp}`;
+                        updateMatrixJob(job.id, { downloadUrl: full });
+                        // auto save locally
+                        const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
+                        updateMatrixJob(job.id, { savedPath: saveResp.saved_path || null });
+                        // preview URL
+                        try {
+                          const f = await fetch(full);
+                          const blob = await f.blob();
+                          const obj = URL.createObjectURL(blob);
+                          updateMatrixJob(job.id, { previewUrl: obj });
+                        } catch (_) {}
+                      }
+                    } catch (e) {
+                      // ignore failed job
+                    }
+                  }
+                  message.success('矩阵任务已提交');
+                } catch (e) {
+                  message.error('提交失败');
+                } finally {
+                  setMatrixSubmitting(false);
+                }
+              }}>提交矩阵任务</Button>
+              {matrixJobs.some(j => j.downloadUrl) && (
+              <Button loading={batchEvaluating} onClick={async () => {
+                try {
+                  if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  setBatchEvaluating(true);
+                  for (const job of matrixJobs) {
+                    try {
+                      if (!job.downloadUrl) continue;
+                      // fetch exported file
+                      const resp = await fetch(job.downloadUrl);
+                      if (!resp.ok) continue;
+                      const blob = await resp.blob();
+                      const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
+                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: inputDuration || 30, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
+                      const summary = {
+                        overall: Number(evalResp?.final_score ?? 0),
+                        vmaf: evalResp?.metrics?.vmaf,
+                        psnr: evalResp?.metrics?.psnr_db,
+                        ssim: evalResp?.metrics?.ssim,
+                        bitrate_after_kbps: (evalResp?.metrics?.bitrate_after_bps ?? 0) / 1000,
+                      };
+                      updateMatrixJob(job.id, { evalSavedJsonPath: saveJson?.url || null, evalSummary: summary });
+                    } catch (_) {}
+                  }
+                  message.success('批量评估完成');
+                } catch (e) {
+                  message.error('批量评估失败');
+                } finally {
+                  setBatchEvaluating(false);
+                }
+              }}>批量评估</Button>
+              )}
+              {matrixJobs.some(j => j.evalSummary) && (
+              <Button onClick={() => {
+                const ts = Date.now();
+                setCsvFilename(`matrix_evaluation_${ts}.csv`);
+                setCsvModalVisible(true);
+              }}>导出评估CSV</Button>
+              )}
+            </div>
+            <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={async () => {
+              try {
+                const header = [
+                  'encoder','preset','b_v','maxrate','bufsize','rc','cq','temporal_aq','spatial_aq','profile','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','download_url','saved_path','eval_json_url'
+                ];
+                const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
+                  const p = j.params || {} as any;
+                  const v = [
+                    j.encoder,
+                    String(p.preset ?? ''),
+                    String(p.b ?? ''),
+                    String(p.mr ?? ''),
+                    String(p.bs ?? ''),
+                    String(p.rc ?? 'vbr'),
+                    String(p.cq ?? ''),
+                    String((p.temporal_aq ?? 1)),
+                    String((p.spatial_aq ?? 1)),
+                    String(p.profile ?? ''),
+                    j.outputFilename,
+                    Number(j.evalSummary?.overall ?? 0).toFixed(4),
+                    String(j.evalSummary?.vmaf ?? ''),
+                    String(j.evalSummary?.psnr ?? ''),
+                    String(j.evalSummary?.ssim ?? ''),
+                    String(j.evalSummary?.bitrate_after_kbps ?? ''),
+                    j.downloadUrl || '',
+                    j.savedPath || '',
+                    j.evalSavedJsonPath || ''
+                  ];
+                  return v.map(s => {
+                    const str = String(s ?? '');
+                    if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+                      return '"' + str.replace(/"/g, '""') + '"';
+                    }
+                    return str;
+                  }).join(',');
+                });
+                const csv = [header.join(','), ...rows].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = csvFilename || `matrix_evaluation_${Date.now()}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                message.success('CSV 已下载');
+                setCsvModalVisible(false);
+              } catch (e) {
+                message.error('导出失败');
+              }
+            }}>
+              <Space className="w-full" direction="vertical" size="middle">
+                <div>
+                  <Text className="block mb-1">文件名</Text>
+                  <input type="text" value={csvFilename} onChange={(e) => setCsvFilename(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder={`matrix_evaluation_${Date.now()}.csv`} />
+                </div>
+              </Space>
+            </Modal>
+
+            <div className="grid grid-cols-12 gap-6">
+              {matrixJobs.map(job => (
+                <div key={job.id} className="col-span-6">
+                  <Card size="small" title={job.outputFilename} extra={job.downloadUrl ? <a href={job.downloadUrl} target="_blank" rel="noreferrer">下载</a> : null}>
+                    <Space className="w-full" orientation="vertical" size="small">
+                      {job.previewUrl && (
+                        <video src={job.previewUrl || ''} controls className="w-full h-48 rounded" />
+                      )}
+                      <div className="flex gap-2">
+                        <Button type="dashed" onClick={async () => {
+                          try {
+                            // 优先读取已保存 JSON
+                            if (job.evalSavedJsonPath && !job.evalSummary) {
+                              const url = `http://localhost:3000${job.evalSavedJsonPath.startsWith('/') ? job.evalSavedJsonPath : '/' + job.evalSavedJsonPath}`;
+                              const r = await fetch(url);
+                              if (r.ok) {
+                                const j = await r.json();
+                                const summary = {
+                                  overall: Number(j?.final_score ?? 0),
+                                  vmaf: j?.metrics?.vmaf,
+                                  psnr: j?.metrics?.psnr_db,
+                                  ssim: j?.metrics?.ssim,
+                                  bitrate_after_kbps: (j?.metrics?.bitrate_after_bps ?? 0) / 1000,
+                                };
+                                updateMatrixJob(job.id, { evalSummary: summary });
+                                return;
+                              }
+                            }
+                            // 若无预存结果，则在线评估并保存
+                            if (!job.downloadUrl) { message.warning('该条目尚未完成导出'); return; }
+                            if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                            const resp = await fetch(job.downloadUrl);
+                            if (!resp.ok) { message.error('导出视频下载失败'); return; }
+                            const blob = await resp.blob();
+                            const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
+                            const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: inputDuration || 30, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                            const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
+                            const summary = {
+                              overall: Number(evalResp?.final_score ?? 0),
+                              vmaf: evalResp?.metrics?.vmaf,
+                              psnr: evalResp?.metrics?.psnr_db,
+                              ssim: evalResp?.metrics?.ssim,
+                              bitrate_after_kbps: (evalResp?.metrics?.bitrate_after_bps ?? 0) / 1000,
+                            };
+                            updateMatrixJob(job.id, { evalSavedJsonPath: saveJson?.url || null, evalSummary: summary });
+                            message.success('评估完成并已保存');
+                          } catch (e) {
+                            message.error('评估失败');
+                          }
+                        }}>质量评估</Button>
+                      </div>
+                      {job.evalSummary && (
+                        <table className="w-full text-sm">
+                          <tbody>
+                            <tr><td>总体</td><td>{Number(job.evalSummary.overall).toFixed(2)}</td></tr>
+                            <tr><td>VMAF</td><td>{job.evalSummary.vmaf ?? '-'}</td></tr>
+                            <tr><td>PSNR(dB)</td><td>{job.evalSummary.psnr ?? '-'}</td></tr>
+                            <tr><td>SSIM</td><td>{job.evalSummary.ssim ?? '-'}</td></tr>
+                            <tr><td>码率(kbps)</td><td>{job.evalSummary.bitrate_after_kbps ?? '-'}</td></tr>
+                          </tbody>
+                        </table>
+                      )}
+                    </Space>
+                  </Card>
+                </div>
+              ))}
+            </div>
+          </Space>
+        </Card>
+        )}
+
       </Content>
     </Layout>
   );

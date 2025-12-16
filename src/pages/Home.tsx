@@ -59,6 +59,7 @@ export default function Home() {
     const outputName = params.get('outputName') || 'output.mp4';
     const inputUrl = params.get('inputUrl');
     const inputName = params.get('inputName') || 'input.mp4';
+    const resultJsonUrl = params.get('resultJsonUrl');
     const fetchToFile = async (url: string, name: string) => {
       const resp = await fetch(url);
       if (!resp.ok) throw new Error('下载失败');
@@ -82,6 +83,21 @@ export default function Home() {
             duration: 0, resolution: '', codec: '', bitrate: 0, uploadTime: new Date().toISOString(), raw: f,
           };
           setOriginalVideo(v);
+        }
+        if (resultJsonUrl) {
+          const resp = await fetch(resultJsonUrl);
+          if (resp.ok) {
+            const j = await resp.json();
+            const overall = Number(j?.final_score ?? 0);
+            const quality = Number((j?.scores?.quality ?? ((j?.metrics?.vmaf ?? 0)/100)).toFixed?.(4) ?? j?.scores?.quality ?? 0) * 100;
+            const speed = Number((j?.scores?.speed ?? 0).toFixed?.(4) ?? j?.scores?.speed ?? 0) * 100;
+            const bitrate = Number((j?.scores?.bitrate ?? 0).toFixed?.(4) ?? j?.scores?.bitrate ?? 0) * 100;
+            setFinalScore({ overall: overall * 100, quality, speed, bitrate, bitrateRational: bitrate });
+            setQualityResults({ vmaf: j?.metrics?.vmaf, psnr: j?.metrics?.psnr_db, ssim: j?.metrics?.ssim });
+            setSpeedResults({ rtf: (j?.metrics?.duration_seconds && j?.metrics?.speed_export_seconds) ? (j.metrics.duration_seconds / j.metrics.speed_export_seconds) : 1, exportTime: j?.metrics?.speed_export_seconds ?? 0, relative: 1 });
+            setBitrateResults({ ratio: 0, original: j?.metrics?.bitrate_before_bps ?? 0, exported: j?.metrics?.bitrate_after_bps ?? 0 });
+            message.success('已加载预计算评估结果');
+          }
         }
       } catch (e) {
       }
