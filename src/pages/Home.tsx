@@ -37,12 +37,56 @@ export default function Home() {
   const [bitrateK, setBitrateK] = useState(2.5);
   const [maxSlowdown, setMaxSlowdown] = useState(3.0);
   const [autoTargetBitrate, setAutoTargetBitrate] = useState(true);
+  const [serverIp, setServerIp] = useState('');
+  const [serverPort, setServerPort] = useState(5000);
+  const [automationFile, setAutomationFile] = useState<File | null>(null);
+  const [ffmpegCommand, setFfmpegCommand] = useState('ffmpeg -y -i {input} -c:v libx264 -crf 23 -c:a aac {output}');
+  const [outputFilename, setOutputFilename] = useState('out.mp4');
+  const [automationJob, setAutomationJob] = useState<{ job_id: string; download_url: string } | null>(null);
+  const [automationSaving, setAutomationSaving] = useState(false);
+  const [pingLoading, setPingLoading] = useState(false);
+  const [serverHealth, setServerHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
 
   const originalNotifiedRef = useRef(false);
   const exportedNotifiedRef = useRef(false);
   const uploadSectionRef = useRef<HTMLDivElement | null>(null);
   const autoBitrateTriggeredRef = useRef<string | null>(null);
   const mismatchWarnedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const outputUrl = params.get('outputUrl');
+    const outputName = params.get('outputName') || 'output.mp4';
+    const inputUrl = params.get('inputUrl');
+    const inputName = params.get('inputName') || 'input.mp4';
+    const fetchToFile = async (url: string, name: string) => {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error('下载失败');
+      const blob = await resp.blob();
+      return new File([blob], name, { type: blob.type || 'video/mp4' });
+    };
+    (async () => {
+      try {
+        if (outputUrl && !exportedVideo?.raw) {
+          const f = await fetchToFile(outputUrl, outputName);
+          const v = {
+            id: 'auto-exported', url: URL.createObjectURL(f), name: f.name, size: f.size,
+            duration: 0, resolution: '', codec: '', bitrate: 0, uploadTime: new Date().toISOString(), raw: f,
+          };
+          setExportedVideo(v);
+        }
+        if (inputUrl && !originalVideo?.raw) {
+          const f = await fetchToFile(inputUrl, inputName);
+          const v = {
+            id: 'auto-original-url', url: URL.createObjectURL(f), name: f.name, size: f.size,
+            duration: 0, resolution: '', codec: '', bitrate: 0, uploadTime: new Date().toISOString(), raw: f,
+          };
+          setOriginalVideo(v);
+        }
+      } catch (e) {
+      }
+    })();
+  }, [originalVideo, exportedVideo]);
 
   const uploadProps = {
     multiple: false,
@@ -59,6 +103,28 @@ export default function Home() {
         return Upload.LIST_IGNORE;
       }
       return false; // 阻止自动上传
+    },
+    maxCount: 1,
+    showUploadList: false,
+  } as const;
+
+  const automationUploadProps = {
+    multiple: false,
+    accept: 'video/*',
+    beforeUpload: (file: File) => {
+      const isVideo = file.type.startsWith('video/');
+      if (!isVideo) {
+        message.error('只能上传视频文件！');
+        return Upload.LIST_IGNORE;
+      }
+      const isLt500M = file.size / 1024 / 1024 < 500;
+      if (!isLt500M) {
+        message.error('视频文件大小不能超过 500MB！');
+        return Upload.LIST_IGNORE;
+      }
+      setAutomationFile(file);
+      message.success('自动化测试输入文件已选择');
+      return false;
     },
     maxCount: 1,
     showUploadList: false,
@@ -107,6 +173,62 @@ export default function Home() {
         exportedNotifiedRef.current = true;
         message.success('导出视频选择成功！');
       }
+    }
+  };
+
+  const handleAutomationRun = async () => {
+    try {
+      if (!automationFile) { message.warning('请先上传自动化测试输入视频'); return; }
+      if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
+      const cmd = String(ffmpegCommand || '').trim();
+      if (!cmd.startsWith('ffmpeg')) { message.error('命令必须以 ffmpeg 开头'); return; }
+      if (!cmd.includes('{input}') || !cmd.includes('{output}')) { message.error('命令必须包含 {input} 与 {output}'); return; }
+      message.loading({ content: '自动化测试提交中...', key: 'auto', duration: 0 });
+      const resp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: automationFile, command: cmd, outputFilename });
+      if (resp.status !== 'success') throw new Error(String(resp.message || '服务器返回失败'));
+      const dp = String(resp.download_path || '');
+      const job = String(resp.job_id || '');
+      const full = `http://${serverIp}:${serverPort}${dp}`;
+      setAutomationJob({ job_id: job, download_url: full });
+      message.success({ content: '任务已提交，等待处理完成', key: 'auto', duration: 2 });
+    } catch (e: any) {
+      message.error({ content: String(e?.message || e), key: 'auto' });
+    }
+  };
+
+  const handleAutomationSave = async () => {
+    try {
+      if (!automationJob?.download_url) { message.warning('暂无下载地址'); return; }
+      setAutomationSaving(true);
+      message.loading({ content: '结果保存中...', key: 'save', duration: 0 });
+      const resp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: automationJob.download_url, localSaveDir: '/Users/jinghuan/evaluate-server', filename: outputFilename });
+      if (resp.status !== 'success') throw new Error(String(resp.message || '保存失败'));
+      message.success({ content: `已保存：${resp.saved_path || '/Users/jinghuan/evaluate-server'}`, key: 'save', duration: 2 });
+    } catch (e: any) {
+      message.error({ content: String(e?.message || e), key: 'save' });
+    } finally {
+      setAutomationSaving(false);
+    }
+  };
+
+  const handlePingServer = async () => {
+    try {
+      if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
+      setPingLoading(true);
+      const url = `http://${serverIp}:${serverPort}/health`;
+      const resp = await fetch(url, { method: 'GET' });
+      if (resp.ok) {
+        setServerHealth('ok');
+        message.success('服务器正常');
+      } else {
+        setServerHealth('fail');
+        message.error('服务器不可达');
+      }
+    } catch (e) {
+      setServerHealth('fail');
+      message.error('服务器不可达');
+    } finally {
+      setPingLoading(false);
     }
   };
 

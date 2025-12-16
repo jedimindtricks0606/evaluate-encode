@@ -399,6 +399,63 @@ app.post('/evaluate/ssim', upload.fields([
   }
 });
 
+// Automation: proxy upload to external FFmpeg server to avoid CORS
+app.post('/automation/upload', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    const serverIp = req.body?.server_ip || req.body?.serverIp;
+    const serverPort = Number(req.body?.server_port || req.body?.serverPort || 5000);
+    const command = req.body?.command;
+    const outputFilename = req.body?.output_filename || req.body?.outputFilename || 'output.mp4';
+    if (!file) return res.status(400).json({ status: 'error', message: 'missing file' });
+    if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
+    if (!command) return res.status(400).json({ status: 'error', message: 'missing command' });
+    if (!(String(command).startsWith('ffmpeg') && command.includes('{input}') && command.includes('{output}'))) {
+      return res.status(400).json({ status: 'error', message: 'invalid command, require ffmpeg with {input} and {output}' });
+    }
+
+    const buffer = fs.readFileSync(file.path);
+    const blob = new Blob([buffer]);
+    const fd = new FormData();
+    fd.append('file', blob, file.originalname || 'input.mp4');
+    fd.append('command', String(command));
+    fd.append('output_filename', String(outputFilename));
+
+    const url = `http://${serverIp}:${serverPort}/upload`;
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    const data = await resp.json().catch(() => ({}));
+    // Cleanup temp upload
+    try { fs.unlinkSync(file.path); } catch (_) {}
+    if (!resp.ok) {
+      return res.status(resp.status).json(data);
+    }
+    return res.json(data);
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'proxy upload failed', detail: String(e && e.message || e) });
+  }
+});
+
+// Automation: save downloaded file to local storage path
+app.post('/automation/save', express.json(), async (req, res) => {
+  try {
+    const url = req.body?.url;
+    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const filename = req.body?.filename || null;
+    if (!url) return res.status(400).json({ status: 'error', message: 'missing url' });
+    const resp = await fetch(String(url));
+    if (!resp.ok) return res.status(resp.status).json({ status: 'error', message: `download failed: ${resp.status}` });
+    const ab = await resp.arrayBuffer();
+    const buf = Buffer.from(ab);
+    if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
+    const name = filename || path.basename(new URL(String(url)).pathname);
+    const outPath = path.join(saveDir, name);
+    fs.writeFileSync(outPath, buf);
+    return res.json({ status: 'success', saved_path: outPath });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'save failed', detail: String(e && e.message || e) });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

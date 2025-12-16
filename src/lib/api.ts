@@ -51,3 +51,38 @@ export async function evaluateSSIM(before: File, after: File): Promise<any> {
   if (!resp.ok) throw new Error('SSIM计算失败');
   return resp.json();
 }
+
+export async function automationUpload(options: {
+  serverIp: string;
+  serverPort: number;
+  file: File;
+  command: string;
+  outputFilename?: string;
+}): Promise<{ status: string; message?: string; job_id?: string; input?: string; output?: string; download_path?: string }> {
+  const fd = new FormData();
+  fd.append('file', options.file);
+  fd.append('command', options.command);
+  if (options.outputFilename) fd.append('output_filename', options.outputFilename);
+  fd.append('server_ip', options.serverIp);
+  fd.append('server_port', String(options.serverPort));
+  const resp = await fetch('http://localhost:3000/automation/upload', { method: 'POST', body: fd });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '自动化上传处理失败'));
+  return data as any;
+}
+
+export async function automationSave(options: {
+  fullDownloadUrl: string;
+  localSaveDir: string;
+  filename?: string;
+}): Promise<{ status: string; saved_path?: string; message?: string }> {
+  const body = {
+    url: options.fullDownloadUrl,
+    save_dir: options.localSaveDir,
+    filename: options.filename,
+  };
+  const resp = await fetch('http://localhost:3000/automation/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '结果保存失败'));
+  return data as any;
+}
