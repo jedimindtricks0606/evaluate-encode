@@ -13,7 +13,7 @@ export default function Header({ onOneClickEvaluate }: HeaderProps) {
     <AntHeader className="bg-white shadow-sm px-6 flex items-center justify-between">
       <div className="flex items-center space-x-4">
         <Link to="/" className="text-xl font-bold text-blue-600">
-          视频导出评估
+          视频导出质量评估
         </Link>
       </div>
       

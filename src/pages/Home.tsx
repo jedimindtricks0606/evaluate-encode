@@ -342,10 +342,19 @@ export default function Home() {
           })());
         }
 
-        // 2) 速度评分 S：若无编码耗时，设为 1.0
+        // 2) 速度评分 S：基于用户输入的导出时间与 benchmark
         const timeSec = Number(exportTime || 0);
-        const hasTime = timeSec > 0;
-        const S = hasTime ? 1.0 : 1.0; // 单视频场景：只有一个耗时时，T_min = t -> ratio = 1 -> S = 1
+        const benchSec = Number(benchmark || 0);
+        let S = 1.0;
+        if (timeSec > 0 && benchSec > 0) {
+          const slowdown = timeSec / benchSec;
+          if (slowdown <= 1) {
+            S = 1.0;
+          } else {
+            const ms = Number(maxSlowdown || 3.0);
+            S = Math.max(0, 1 - (slowdown - 1) / Math.max(1e-6, (ms - 1)));
+          }
+        }
 
         // 3) 码率分析与效率评分 E
         const data = await evaluateQuality({
@@ -458,8 +467,17 @@ export default function Home() {
     const E = (E_raw > 0) ? 1.0 : 0.0;
     const durationSec = (exportedVideo?.duration || originalVideo?.duration || 0);
     const timeSec = Number(exportTime || 0);
-    const hasTime = timeSec > 0 && durationSec > 0;
-    const S = hasTime ? 1.0 : 1.0;
+    const benchSec = Number(benchmark || 0);
+    let S = 1.0;
+    if (timeSec > 0 && benchSec > 0) {
+      const slowdown = timeSec / benchSec;
+      if (slowdown <= 1) {
+        S = 1.0;
+      } else {
+        const ms = Number(maxSlowdown || 3.0);
+        S = Math.max(0, 1 - (slowdown - 1) / Math.max(1e-6, (ms - 1)));
+      }
+    }
     const resStr = dst?.resolution || src?.resolution || '';
     const mm = resStr ? resStr.match(/(\d+)x(\d+)/i) : null;
     const W = mm ? Number(mm[1]) : 0;
@@ -472,6 +490,7 @@ export default function Home() {
       weights,
       quality_params: { V0, k },
       bitrate_params: { target_kbps: targetBitrateKbps, codec, k: bitrateK },
+      speed_params: { export_time_seconds: timeSec, benchmark_seconds: benchSec, max_slowdown: maxSlowdown },
       source: src,
       encoded: dst,
       metrics: {
