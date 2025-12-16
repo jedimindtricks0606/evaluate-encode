@@ -105,24 +105,24 @@ export default function ResultsPanel({
         </Col>
       </Row>
 
-      <div className="text-center">
-        <Space>
-          <Button 
-            type="primary" 
-            icon={<DownloadOutlined />}
-            onClick={onDownloadReport}
-            size="large"
-          >
-            下载报告
-          </Button>
-          <Button 
-            icon={<ShareAltOutlined />}
-            onClick={onShare}
-            size="large"
-          >
-            分享结果
-          </Button>
-        </Space>
+      <div className="flex justify-center gap-4 mt-2">
+        <Button 
+          type="primary" 
+          icon={<DownloadOutlined />}
+          onClick={onDownloadReport}
+          size="large"
+          className="min-w-[160px]"
+        >
+          下载报告
+        </Button>
+        <Button 
+          icon={<ShareAltOutlined />}
+          onClick={onShare}
+          size="large"
+          className="min-w-[160px]"
+        >
+          分享结果
+        </Button>
       </div>
     </Card>
   );
