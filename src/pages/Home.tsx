@@ -21,7 +21,7 @@ export default function Home() {
   const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo, qualityCache, upsertQualityCache } = useEvaluationStore();
   
   const [exportTime, setExportTime] = useState(30);
-  const [benchmark, setBenchmark] = useState(60);
+  const [benchmark, setBenchmark] = useState(30);
   const [qualityResults, setQualityResults] = useState<EvaluationResults | null>(null);
   const [speedResults, setSpeedResults] = useState<{ rtf: number; exportTime: number; relative: number } | null>(null);
   const [bitrateResults, setBitrateResults] = useState<{ ratio: number; original: number; exported: number } | null>(null);
@@ -754,8 +754,7 @@ export default function Home() {
                     <div>
                       <Text className="block mb-1">导出速度评价</Text>
                       <div className="text-gray-500 text-sm">
-                        <div>若无耗时输入，S = 1.0；存在多方案耗时时，采用线性关系。</div>
-                        <div>T<sub>min</sub> 为最快耗时，slowdown = T ÷ T<sub>min</sub></div>
+                        <div>T<sub>min</sub> 为最快耗时，slowdown = T ÷ T<sub>min</sub>, MAX_SLOWDOWN = 3</div>
                         <div>S = max(0, 1 − (slowdown − 1) ÷ (MAX_SLOWDOWN − 1))</div>
                       </div>
                     </div>
