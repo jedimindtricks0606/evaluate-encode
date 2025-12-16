@@ -20,9 +20,9 @@ export default function Home() {
   const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo, qualityCache, upsertQualityCache } = useEvaluationStore();
   
   const [exportTime, setExportTime] = useState(30);
-  const [benchmark, setBenchmark] = useState('标准测试');
+  const [benchmark, setBenchmark] = useState(60);
   const [qualityResults, setQualityResults] = useState<EvaluationResults | null>(null);
-  const [speedResults, setSpeedResults] = useState<{ rtf: number; exportTime: number } | null>(null);
+  const [speedResults, setSpeedResults] = useState<{ rtf: number; exportTime: number; relative: number } | null>(null);
   const [bitrateResults, setBitrateResults] = useState<{ ratio: number; original: number; exported: number } | null>(null);
   const [originalFps, setOriginalFps] = useState<number | undefined>(undefined);
   const [exportedFps, setExportedFps] = useState<number | undefined>(undefined);
@@ -154,10 +154,11 @@ export default function Home() {
   };
 
   const handleSpeedEvaluate = () => {
-    setSpeedResults({
-      rtf: 1.5,
-      exportTime: exportTime
-    });
+    const duration = (exportedVideo?.duration || originalVideo?.duration || 0);
+    const time = Number(exportTime || 0);
+    const rtf = (duration > 0 && time > 0) ? (duration / time) : 0;
+    const relative = (benchmark > 0 && time > 0) ? (benchmark / time) : 0;
+    setSpeedResults({ rtf, exportTime: time, relative });
   };
 
   const handleBitrateAnalyze = async () => {

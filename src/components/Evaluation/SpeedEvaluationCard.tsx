@@ -1,16 +1,15 @@
-import { Card, Button, InputNumber, Space, Typography, Row, Col, Select } from 'antd';
-import { ClockCircleOutlined, BarChartOutlined } from '@ant-design/icons';
+import { Card, Button, InputNumber, Space, Typography, Row, Col } from 'antd';
+import { ClockCircleOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
-const { Option } = Select;
 
 interface SpeedEvaluationCardProps {
   exportTime: number;
   onExportTimeChange: (time: number) => void;
-  benchmark: string;
-  onBenchmarkChange: (benchmark: string) => void;
+  benchmark: number;
+  onBenchmarkChange: (benchmark: number) => void;
   onEvaluate: () => void;
-  results?: { rtf: number; exportTime: number };
+  results?: { rtf: number; exportTime: number; relative?: number };
 }
 
 export default function SpeedEvaluationCard({ 
@@ -21,8 +20,6 @@ export default function SpeedEvaluationCard({
   onEvaluate,
   results 
 }: SpeedEvaluationCardProps) {
-  const benchmarks = ['标准测试', '快速测试', '深度测试'];
-
   return (
     <Card 
       title="导出速度评估" 
@@ -36,7 +33,19 @@ export default function SpeedEvaluationCard({
           
           <Space orientation="vertical" className="w-full mb-4" size="large">
             <div>
-              <Text className="block mb-2">导出时间 (秒)</Text>
+              <Text className="block mb-2">Benchmark 导出时间 (秒)</Text>
+              <InputNumber
+                min={0.1}
+                step={0.1}
+                value={benchmark}
+                onChange={(val) => onBenchmarkChange(val || 0)}
+                className="w-full"
+                placeholder="请输入基准导出时间"
+              />
+            </div>
+
+            <div>
+              <Text className="block mb-2">本次导出时间 (秒)</Text>
               <InputNumber
                 min={0.1}
                 step={0.1}
@@ -45,19 +54,6 @@ export default function SpeedEvaluationCard({
                 className="w-full"
                 placeholder="请输入导出时间"
               />
-            </div>
-
-            <div>
-              <Text className="block mb-2">基准测试</Text>
-              <Select
-                value={benchmark}
-                onChange={onBenchmarkChange}
-                className="w-full"
-              >
-                {benchmarks.map(b => (
-                  <Option key={b} value={b}>{b}</Option>
-                ))}
-              </Select>
             </div>
 
             {results && (
@@ -69,24 +65,27 @@ export default function SpeedEvaluationCard({
                 <Text type="secondary" className="text-xs">
                   {results.rtf >= 1 ? '快于实时' : '慢于实时'}
                 </Text>
+                <div className="mt-2">
+                  <Text type="secondary" className="text-sm">相对基准</Text>
+                  <Title level={5} className="!mb-0">
+                    {(results.relative ?? 0).toFixed(2)}x {((results.relative ?? 0) >= 1 ? '快于基准' : '慢于基准')}
+                  </Title>
+                </div>
               </div>
             )}
           </Space>
         </div>
 
         <Row gutter={8}>
-          <Col span={12}>
+          <Col span={24}>
             <Button 
               type="primary" 
               icon={<ClockCircleOutlined />}
               onClick={onEvaluate}
               block
             >
-              开始测试
+              计算RTF
             </Button>
-          </Col>
-          <Col span={12}>
-            <Button icon={<BarChartOutlined />} block>历史对比</Button>
           </Col>
         </Row>
       </div>
