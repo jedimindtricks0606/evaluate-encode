@@ -1,4 +1,4 @@
-import { Card, Button, Checkbox, Space, Typography, Row, Col, Modal, Progress } from 'antd';
+import { Card, Button, Checkbox, Space, Typography, Row, Col, Progress } from 'antd';
 import { LineChartOutlined, SettingOutlined } from '@ant-design/icons';
 import { EvaluationType, EvaluationResults } from '@/types';
 import { useState, useMemo } from 'react';
@@ -21,7 +21,6 @@ export default function QualityEvaluationCard({
   efficiencyRatio
 }: QualityEvaluationCardProps) {
   const qualityTypes = [EvaluationType.VMAF, EvaluationType.PSNR, EvaluationType.SSIM];
-  const [open, setOpen] = useState(false);
   const getColor = (type: EvaluationType, v: number) => {
     if (type === EvaluationType.VMAF) {
       if (v >= 90) return '#52c41a';
@@ -110,7 +109,7 @@ export default function QualityEvaluationCard({
         </div>
 
         <Row gutter={8}>
-          <Col span={12}>
+          <Col span={24}>
             <Button 
               type="primary" 
               icon={<LineChartOutlined />}
@@ -120,11 +119,9 @@ export default function QualityEvaluationCard({
               开始评估
             </Button>
           </Col>
-          <Col span={12}>
-            <Button block onClick={() => setOpen(true)}>查看评价标准</Button>
-          </Col>
         </Row>
-        <Modal open={open} onCancel={() => setOpen(false)} onOk={() => setOpen(false)} title="指标范围与评价">
+        <div className="mt-4">
+          <Title level={4} className="!mb-3">画质评价标准</Title>
           <Space orientation="vertical" className="w-full" size="large">
             <div>
               <Title level={4} className="!mb-2">VMAF</Title>
@@ -172,7 +169,7 @@ export default function QualityEvaluationCard({
               </div>
             </div>
           </Space>
-        </Modal>
+        </div>
       </div>
     </Card>
   );

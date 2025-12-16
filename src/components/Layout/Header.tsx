@@ -4,7 +4,11 @@ import { Link } from 'react-router-dom';
 
 const { Header: AntHeader } = Layout;
 
-export default function Header() {
+interface HeaderProps {
+  onOneClickEvaluate?: () => void;
+}
+
+export default function Header({ onOneClickEvaluate }: HeaderProps) {
   return (
     <AntHeader className="bg-white shadow-sm px-6 flex items-center justify-between">
       <div className="flex items-center space-x-4">
@@ -19,6 +23,7 @@ export default function Header() {
           icon={<PlayCircleOutlined />}
           size="large"
           className="h-12 px-6"
+          onClick={onOneClickEvaluate}
         >
           一键评估
         </Button>

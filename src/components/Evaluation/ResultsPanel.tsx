@@ -100,17 +100,7 @@ export default function ResultsPanel({
               />
             </div>
 
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <Text>码率效率评分</Text>
-                <Text strong>{bitrateScore.toFixed(1)}</Text>
-              </div>
-              <Progress 
-                percent={bitrateScore} 
-                strokeColor="#722ed1"
-                showInfo={false}
-              />
-            </div>
+            
           </Space>
         </Col>
       </Row>

@@ -569,7 +569,7 @@ export default function Home() {
 
   return (
     <Layout className="min-h-screen bg-gray-50">
-      <Header />
+      <Header onOneClickEvaluate={handleOneClickEvaluate} />
       
       <Content className="p-6">
 
@@ -662,43 +662,34 @@ export default function Home() {
         <div className="mb-6">
           <Title level={2} className="!mb-4">评估模块</Title>
           <Row gutter={16}>
-            <Col span={8}>
-              <QualityEvaluationCard 
-                selectedTypes={selectedTypes}
-                onTypeChange={setSelectedTypes}
-                onEvaluate={handleQualityEvaluate}
-                results={qualityResults}
-                efficiencyRatio={efficiencyRatio}
-              />
-            </Col>
-            <Col span={8}>
-              <SpeedEvaluationCard 
-                exportTime={exportTime}
-                onExportTimeChange={setExportTime}
-                benchmark={benchmark}
-                onBenchmarkChange={setBenchmark}
-                onEvaluate={handleSpeedEvaluate}
-                results={speedResults}
-              />
-            </Col>
-            <Col span={8}>
-              <BitrateAnalysisCard 
-                originalBitrate={bitrateResults?.original}
-                exportedBitrate={bitrateResults?.exported}
-                onAnalyze={handleBitrateAnalyze}
-                results={bitrateResults}
-                originalResolution={originalVideo?.resolution}
-                exportedResolution={exportedVideo?.resolution}
-                originalFps={originalFps}
-                exportedFps={exportedFps}
-                loading={bitrateLoading}
-              />
-            </Col>
-          </Row>
+            <Col span={16}>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <BitrateAnalysisCard 
+                    originalBitrate={bitrateResults?.original}
+                    exportedBitrate={bitrateResults?.exported}
+                    onAnalyze={handleBitrateAnalyze}
+                    results={bitrateResults}
+                    originalResolution={originalVideo?.resolution}
+                    exportedResolution={exportedVideo?.resolution}
+                    originalFps={originalFps}
+                    exportedFps={exportedFps}
+                    loading={bitrateLoading}
+                  />
+                </Col>
+                <Col span={12}>
+                  <SpeedEvaluationCard 
+                    exportTime={exportTime}
+                    onExportTimeChange={setExportTime}
+                    benchmark={benchmark}
+                    onBenchmarkChange={setBenchmark}
+                    onEvaluate={handleSpeedEvaluate}
+                    results={speedResults}
+                  />
+                </Col>
+              </Row>
 
-          <div className="mt-6">
-            <Row gutter={16}>
-              <Col span={12}>
+              <div className="mt-3">
                 <Card className="shadow-sm">
                   <Title level={4} className="!mb-4">综合评估</Title>
                   <Space className="w-full" orientation="vertical" size="large">
@@ -791,23 +782,32 @@ export default function Home() {
                     </div>
                   </Space>
                 </Card>
-              </Col>
-              <Col span={12}>
+
                 {finalScore && (
-                  <ResultsPanel 
-                    overallScore={finalScore.overall}
-                    qualityScore={finalScore.quality}
-                    speedScore={finalScore.speed}
-                    bitrateScore={finalScore.bitrate}
-                    bitrateRationalScore={finalScore.bitrateRational}
-                    onDownloadReport={handleDownloadReport}
-                    onShare={handleShareReport}
-                  />
+                  <div className="mt-3">
+                    <ResultsPanel 
+                      overallScore={finalScore.overall}
+                      qualityScore={finalScore.quality}
+                      speedScore={finalScore.speed}
+                      bitrateScore={finalScore.bitrate}
+                      bitrateRationalScore={finalScore.bitrateRational}
+                      onDownloadReport={handleDownloadReport}
+                      onShare={handleShareReport}
+                    />
+                  </div>
                 )}
-                
-              </Col>
-            </Row>
-          </div>
+              </div>
+            </Col>
+            <Col span={8}>
+              <QualityEvaluationCard 
+                selectedTypes={selectedTypes}
+                onTypeChange={setSelectedTypes}
+                onEvaluate={handleQualityEvaluate}
+                results={qualityResults}
+                efficiencyRatio={efficiencyRatio}
+              />
+            </Col>
+          </Row>
         </div>
       </Content>
     </Layout>
