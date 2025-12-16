@@ -1,5 +1,4 @@
-import { Card, Button, InputNumber, Space, Typography, Row, Col } from 'antd';
-import { ClockCircleOutlined } from '@ant-design/icons';
+import { Card, InputNumber, Space, Typography } from 'antd';
 
 const { Title, Text } = Typography;
 
@@ -22,7 +21,7 @@ export default function SpeedEvaluationCard({
 }: SpeedEvaluationCardProps) {
   return (
     <Card 
-      title="导出速度评估" 
+      title="导出速度" 
       className="h-80 shadow-sm hover:shadow-md transition-shadow"
     >
       <div className="h-full flex flex-col">
@@ -56,38 +55,11 @@ export default function SpeedEvaluationCard({
               />
             </div>
 
-            {results && (
-              <div className="bg-green-50 p-3 rounded">
-                <Text type="secondary" className="text-sm">实时因子 (RTF)</Text>
-                <Title level={3} className="!mb-0 text-green-600">
-                  {results.rtf?.toFixed(2) || '0.00'}
-                </Title>
-                <Text type="secondary" className="text-xs">
-                  {results.rtf >= 1 ? '快于实时' : '慢于实时'}
-                </Text>
-                <div className="mt-2">
-                  <Text type="secondary" className="text-sm">相对基准</Text>
-                  <Title level={5} className="!mb-0">
-                    {(results.relative ?? 0).toFixed(2)}x {((results.relative ?? 0) >= 1 ? '快于基准' : '慢于基准')}
-                  </Title>
-                </div>
-              </div>
-            )}
+            {/* 删除导出速度评估的结果展示 */}
           </Space>
         </div>
 
-        <Row gutter={8}>
-          <Col span={24}>
-            <Button 
-              type="primary" 
-              icon={<ClockCircleOutlined />}
-              onClick={onEvaluate}
-              block
-            >
-              计算RTF
-            </Button>
-          </Col>
-        </Row>
+        
       </div>
     </Card>
   );

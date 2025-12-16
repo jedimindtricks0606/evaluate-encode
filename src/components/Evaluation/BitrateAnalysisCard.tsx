@@ -37,6 +37,16 @@ export default function BitrateAnalysisCard({
     return `${bitrate} bps`;
   };
 
+  const formatPerFrameSize = (bps?: number, fps?: number) => {
+    const b = Number(bps || 0);
+    const f = Number(fps || 0);
+    if (!b || !f || f <= 0) return null;
+    const bytes = b / f / 8;
+    if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB/帧`;
+    if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)} KB/帧`;
+    return `${Math.round(bytes)} B/帧`;
+  };
+
   const parseHeight = (res?: string) => {
     if (!res) return undefined;
     const m = res.match(/(\d+)x(\d+)/i);
@@ -131,6 +141,7 @@ export default function BitrateAnalysisCard({
                     <Text type="secondary" className="block text-xs mt-1">分辨率：{originalResolution}</Text>
                   )}
                   <Text type="secondary" className="block text-xs">帧率：{originalFps != null ? Number(originalFps).toFixed(0) + ' fps' : (loading ? '计算中' : '未分析')}</Text>
+                  <Text type="secondary" className="block text-xs">单帧大小：{formatPerFrameSize(originalBitrate, originalFps) || (loading ? '计算中' : '未分析')}</Text>
                 </div>
               </Col>
               <Col span={12}>
@@ -143,6 +154,7 @@ export default function BitrateAnalysisCard({
                     <Text type="secondary" className="block text-xs mt-1">分辨率：{exportedResolution}</Text>
                   )}
                   <Text type="secondary" className="block text-xs">帧率：{exportedFps != null ? Number(exportedFps).toFixed(0) + ' fps' : (loading ? '计算中' : '未分析')}</Text>
+                  <Text type="secondary" className="block text-xs">单帧大小：{formatPerFrameSize(exportedBitrate, exportedFps) || (loading ? '计算中' : '未分析')}</Text>
                 </div>
               </Col>
             </Row>

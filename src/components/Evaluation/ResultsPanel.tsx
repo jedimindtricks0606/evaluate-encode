@@ -8,6 +8,7 @@ interface ResultsPanelProps {
   qualityScore?: number;
   speedScore?: number;
   bitrateScore?: number;
+  bitrateRationalScore?: number;
   onDownloadReport?: () => void;
   onShare?: () => void;
 }
@@ -17,6 +18,7 @@ export default function ResultsPanel({
   qualityScore = 0,
   speedScore = 0,
   bitrateScore = 0,
+  bitrateRationalScore = 0,
   onDownloadReport,
   onShare
 }: ResultsPanelProps) {
@@ -88,7 +90,19 @@ export default function ResultsPanel({
 
             <div>
               <div className="flex justify-between items-center mb-2">
-                <Text>码率评分</Text>
+                <Text>码率合理性评分</Text>
+                <Text strong>{bitrateRationalScore.toFixed(1)}</Text>
+              </div>
+              <Progress 
+                percent={bitrateRationalScore} 
+                strokeColor="#531dab"
+                showInfo={false}
+              />
+            </div>
+
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <Text>码率效率评分</Text>
                 <Text strong>{bitrateScore.toFixed(1)}</Text>
               </div>
               <Progress 

@@ -10,16 +10,39 @@ interface QualityEvaluationCardProps {
   onTypeChange: (types: EvaluationType[]) => void;
   onEvaluate: () => void;
   results?: EvaluationResults;
+  efficiencyRatio?: number | null;
 }
 
 export default function QualityEvaluationCard({ 
   selectedTypes, 
   onTypeChange, 
   onEvaluate,
-  results 
+  results,
+  efficiencyRatio
 }: QualityEvaluationCardProps) {
   const qualityTypes = [EvaluationType.VMAF, EvaluationType.PSNR, EvaluationType.SSIM];
   const [open, setOpen] = useState(false);
+  const getColor = (type: EvaluationType, v: number) => {
+    if (type === EvaluationType.VMAF) {
+      if (v >= 90) return '#52c41a';
+      if (v >= 80) return '#faad14';
+      if (v >= 60) return '#faad14';
+      return '#ff4d4f';
+    }
+    if (type === EvaluationType.PSNR) {
+      if (v >= 45) return '#52c41a';
+      if (v >= 40) return '#faad14';
+      if (v >= 35) return '#faad14';
+      return '#ff4d4f';
+    }
+    if (type === EvaluationType.SSIM) {
+      if (v >= 0.95) return '#52c41a';
+      if (v >= 0.9) return '#faad14';
+      if (v >= 0.8) return '#faad14';
+      return '#ff4d4f';
+    }
+    return '#595959';
+  };
   
   const handleTypeChange = (type: EvaluationType, checked: boolean) => {
     if (checked) {
@@ -32,41 +55,48 @@ export default function QualityEvaluationCard({
   return (
     <Card 
       title="画质评估" 
-      className="h-80 shadow-sm hover:shadow-md transition-shadow"
+      className="min-h-80 shadow-sm hover:shadow-md transition-shadow"
       extra={<SettingOutlined className="text-gray-400" />}
     >
-      <div className="h-full flex flex-col">
-        <div className="flex-1">
+      <div className="flex flex-col">
+        <div>
           <Text type="secondary" className="block mb-4">
             使用专业指标评估视频画质质量
           </Text>
           
           <Space orientation="vertical" className="w-full mb-4">
-            {qualityTypes.map(type => (
-              <div key={type} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
-                <Checkbox
-                  checked={selectedTypes.includes(type)}
-                  onChange={(e) => handleTypeChange(type, e.target.checked)}
-                >
-                  <span className="font-medium">{type.toUpperCase()}</span>
-                </Checkbox>
-                {type === EvaluationType.VMAF && results?.vmaf && (
-                  <Text type="success" className="text-sm">
-                    {(results.vmaf.score ?? 0).toFixed(2)}
-                  </Text>
-                )}
-                {type === EvaluationType.PSNR && results?.psnr && (
-                  <Text type="success" className="text-sm">
-                    {(results.psnr.avg ?? 0).toFixed(2)}
-                  </Text>
-                )}
-                {type === EvaluationType.SSIM && results?.ssim && (
-                  <Text type="success" className="text-sm">
-                    {(results.ssim.score ?? 0).toFixed(2)}
-                  </Text>
-                )}
+            {qualityTypes.map(type => {
+              const val = type === EvaluationType.VMAF ? (results?.vmaf?.score ?? undefined)
+                : type === EvaluationType.PSNR ? (results?.psnr?.avg ?? undefined)
+                : type === EvaluationType.SSIM ? (results?.ssim?.score ?? undefined)
+                : undefined;
+              const color = val != null ? getColor(type, Number(val)) : '#595959';
+              return (
+                <div key={type} className="flex items-center justify-between p-2 rounded hover:bg-gray-50">
+                  <Checkbox
+                    checked={selectedTypes.includes(type)}
+                    onChange={(e) => handleTypeChange(type, e.target.checked)}
+                  >
+                    <span className="font-medium">{type.toUpperCase()}</span>
+                  </Checkbox>
+                  {val != null && (
+                    <Text className="text-sm font-medium" style={{ color }}>{Number(val).toFixed(2)}</Text>
+                  )}
+                </div>
+              );
+            })}
+            {efficiencyRatio != null && (
+              <div className="p-3 bg-green-50 rounded">
+                <div className="flex items-center justify-between">
+                  <Text type="secondary" className="text-sm">画质效率比</Text>
+                  <Text strong className="text-green-600">{efficiencyRatio.toFixed(6)}</Text>
+                </div>
+                <Text type="secondary" className="text-xs mt-1">
+                  计算原理：画质效率比 = Q / (BPF / 像素个数)，其中 Q 为经 VMAF 非线性映射的感知画质；
+                  BPF = (码率kbps × 1000) ÷ fps；像素个数 = W × H。
+                </Text>
               </div>
-            ))}
+            )}
           </Space>
 
           {/* 不展示综合画质评分，仅展示右侧绿字结果 */}
