@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Header from '@/components/Layout/Header';
 import { useEvaluationStore } from '@/stores/evaluationStore';
+import { useAutomationStore } from '@/stores/automationStore';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -12,13 +13,15 @@ const { Dragger } = Upload;
 export default function Automation() {
   const navigate = useNavigate();
   const { setOriginalVideo } = useEvaluationStore();
-
-  const [serverIp, setServerIp] = useState('10.23.172.47');
-  const [serverPort, setServerPort] = useState(5000);
-  const [ffmpegCommand, setFfmpegCommand] = useState('ffmpeg -y -i {input} -c:v libx264 -crf 23 -c:a aac {output}');
-  const [outputFilename, setOutputFilename] = useState('out.mp4');
-  const [inputFile, setInputFile] = useState<File | null>(null);
-  const [jobDownloadUrl, setJobDownloadUrl] = useState<string | null>(null);
+  const {
+    serverIp, setServerIp,
+    serverPort, setServerPort,
+    ffmpegCommand, setFfmpegCommand,
+    outputFilename, setOutputFilename,
+    inputFile, setInputFile,
+    jobDownloadUrl, setJobDownloadUrl,
+    autoSavedPath, setAutoSavedPath,
+  } = useAutomationStore();
   const [pingLoading, setPingLoading] = useState(false);
   const [serverHealth, setServerHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
   const [submitting, setSubmitting] = useState(false);
@@ -27,6 +30,7 @@ export default function Automation() {
   const [inputDuration, setInputDuration] = useState<number | null>(null);
   const [inputResolution, setInputResolution] = useState<string | null>(null);
   const [inputBitrateKbps, setInputBitrateKbps] = useState<number | null>(null);
+  const [savingAuto, setSavingAuto] = useState(false);
 
   const automationUploadProps = {
     multiple: false,
@@ -102,6 +106,20 @@ export default function Automation() {
       const full = `http://${serverIp}:${serverPort}${dp}`;
       setJobDownloadUrl(full);
       message.success({ content: '任务已提交', key: 'auto', duration: 2 });
+      // 自动下载并保存到本地
+      try {
+        setSavingAuto(true);
+        const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: outputFilename });
+        if (saveResp.status === 'success') {
+          setAutoSavedPath(String(saveResp.saved_path || ''));
+        } else {
+          setAutoSavedPath(null);
+        }
+      } catch (_) {
+        setAutoSavedPath(null);
+      } finally {
+        setSavingAuto(false);
+      }
       // 预置原视频到评估 Store，便于后续比对
       const originalVideo = {
         id: 'auto-original',
@@ -224,25 +242,13 @@ export default function Automation() {
               </div>
             )}
 
-            <div className="flex gap-3">
-              {jobDownloadUrl && (
-                <>
-                  <Button loading={saving} onClick={handleSaveResult}>保存处理结果到本地</Button>
-                  <Button type="dashed" onClick={handleGoEvaluate}>去质量评估</Button>
-                </>
-              )}
-            </div>
+            
 
-            {jobDownloadUrl && (
-              <div className="p-3 bg-gray-50 rounded">
-                <Text type="secondary" className="block mb-1">下载地址</Text>
-                <Text className="break-all">{jobDownloadUrl}</Text>
-              </div>
-            )}
+            
           </Space>
         </Card>
 
-        <Card className="shadow-sm mt-4">
+        <Card className="shadow-sm mt-4" title="单点导出">
           <Space className="w-full" orientation="vertical" size="large">
             <div>
               <Text className="block mb-1">输出文件名</Text>
@@ -255,6 +261,29 @@ export default function Automation() {
             </div>
             <div className="flex gap-3">
               <Button type="primary" icon={<PlayCircleOutlined />} loading={submitting} onClick={handleSubmitJob}>开启自动化测试</Button>
+              {jobDownloadUrl && (
+                <>
+                  <Button loading={saving} onClick={handleSaveResult}>保存处理结果到本地</Button>
+                  <Button type="dashed" onClick={handleGoEvaluate}>去质量评估</Button>
+                </>
+              )}
+            </div>
+            <div>
+              {savingAuto && (
+                <Text type="secondary">结果保存中...</Text>
+              )}
+              {!savingAuto && autoSavedPath && (
+                <Text type="success">已保存：{autoSavedPath}</Text>
+              )}
+              {!savingAuto && autoSavedPath === null && jobDownloadUrl && (
+                <Text type="danger">保存失败，请重试或使用上方按钮手动保存</Text>
+              )}
+              {jobDownloadUrl && (
+                <div className="p-3 bg-gray-50 rounded mt-2">
+                  <Text type="secondary" className="block mb-1">下载地址</Text>
+                  <Text className="break-all">{jobDownloadUrl}</Text>
+                </div>
+              )}
             </div>
           </Space>
         </Card>
