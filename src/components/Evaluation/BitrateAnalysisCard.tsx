@@ -130,31 +130,31 @@ export default function BitrateAnalysisCard({
           </Text>
           
           <div className="mb-4">
-            <Row gutter={16} className="mb-3">
+            <Row gutter={16} className="mb-2">
               <Col span={12}>
-                <div className="text-center p-3 bg-gray-50 rounded">
-                  <Text type="secondary" className="text-sm">原始码率</Text>
-                  <Title level={4} className="!mb-0">
+                <div className="text-center p-2 bg-gray-50 rounded">
+                  <Text type="secondary" className="text-xs">原始码率</Text>
+                  <Title level={5} className="!mb-0 !mt-1">
                     {loading ? '计算中' : (originalBitrate != null ? formatBitrate(originalBitrate) : '未分析')}
                   </Title>
                   {originalResolution && (
-                    <Text type="secondary" className="block text-xs mt-1">分辨率：{originalResolution}</Text>
+                    <Text type="secondary" className="block text-xs mt-0.5">分辨率：{originalResolution}</Text>
                   )}
-                  <Text type="secondary" className="block text-xs">帧率：{originalFps != null ? Number(originalFps).toFixed(0) + ' fps' : (loading ? '计算中' : '未分析')}</Text>
-                  <Text type="secondary" className="block text-xs">单帧大小：{formatPerFrameSize(originalBitrate, originalFps) || (loading ? '计算中' : '未分析')}</Text>
+                  <Text type="secondary" className="block text-xs mt-0.5">帧率：{originalFps != null ? Number(originalFps).toFixed(0) + ' fps' : (loading ? '计算中' : '未分析')}</Text>
+                  <Text type="secondary" className="block text-xs mt-0.5">单帧大小：{formatPerFrameSize(originalBitrate, originalFps) || (loading ? '计算中' : '未分析')}</Text>
                 </div>
               </Col>
               <Col span={12}>
-                <div className="text-center p-3 bg-gray-50 rounded">
-                  <Text type="secondary" className="text-sm">导出码率</Text>
-                  <Title level={4} className="!mb-0">
+                <div className="text-center p-2 bg-gray-50 rounded">
+                  <Text type="secondary" className="text-xs">导出码率</Text>
+                  <Title level={5} className="!mb-0 !mt-1">
                     {loading ? '计算中' : (exportedBitrate != null ? formatBitrate(exportedBitrate) : '未分析')}
                   </Title>
                   {exportedResolution && (
-                    <Text type="secondary" className="block text-xs mt-1">分辨率：{exportedResolution}</Text>
+                    <Text type="secondary" className="block text-xs mt-0.5">分辨率：{exportedResolution}</Text>
                   )}
-                  <Text type="secondary" className="block text-xs">帧率：{exportedFps != null ? Number(exportedFps).toFixed(0) + ' fps' : (loading ? '计算中' : '未分析')}</Text>
-                  <Text type="secondary" className="block text-xs">单帧大小：{formatPerFrameSize(exportedBitrate, exportedFps) || (loading ? '计算中' : '未分析')}</Text>
+                  <Text type="secondary" className="block text-xs mt-0.5">帧率：{exportedFps != null ? Number(exportedFps).toFixed(0) + ' fps' : (loading ? '计算中' : '未分析')}</Text>
+                  <Text type="secondary" className="block text-xs mt-0.5">单帧大小：{formatPerFrameSize(exportedBitrate, exportedFps) || (loading ? '计算中' : '未分析')}</Text>
                 </div>
               </Col>
             </Row>
@@ -164,18 +164,7 @@ export default function BitrateAnalysisCard({
         </div>
 
         <Row gutter={8}>
-          <Col span={12}>
-            <Button 
-              type="primary" 
-              icon={<VideoCameraOutlined />}
-              onClick={onAnalyze}
-              disabled={loading}
-              block
-            >
-              开始分析
-            </Button>
-          </Col>
-          <Col span={12}>
+          <Col span={24}>
             <Button icon={<BarChartOutlined />} block onClick={() => setOpen(true)}>码率范围对照</Button>
           </Col>
         </Row>

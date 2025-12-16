@@ -91,10 +91,17 @@ export default function QualityEvaluationCard({
                   <Text type="secondary" className="text-sm">画质效率比</Text>
                   <Text strong className="text-green-600">{efficiencyRatio.toFixed(6)}</Text>
                 </div>
-                <Text type="secondary" className="text-xs mt-1">
-                  计算原理：画质效率比 = Q / (BPF / 像素个数)，其中 Q 为经 VMAF 非线性映射的感知画质；
-                  BPF = (码率kbps × 1000) ÷ fps；像素个数 = W × H。
-                </Text>
+                <div className="text-gray-500 text-xs mt-1">
+                  <div>计算原理：画质效率比 = Q / (BPF / 像素个数)</div>
+                  <div>
+                    其中 Q 为经 VMAF 非线性映射的感知画质：Q = log(1 + k × (VMAF − V
+                    <sub>0</sub>
+                    )) ÷ log(1 + k × (100 − V
+                    <sub>0</sub>
+                    ))；
+                  </div>
+                  <div>BPF = (码率kbps × 1000) ÷ fps；像素个数 = W × H。</div>
+                </div>
               </div>
             )}
           </Space>

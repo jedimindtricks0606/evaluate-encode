@@ -28,7 +28,7 @@ export default function Home() {
   const [originalFps, setOriginalFps] = useState<number | undefined>(undefined);
   const [exportedFps, setExportedFps] = useState<number | undefined>(undefined);
   const [bitrateLoading, setBitrateLoading] = useState(false);
-  const [weights, setWeights] = useState<{ wq: number; ws: number; wb: number }>({ wq: 0.65, ws: 0.25, wb: 0.10 });
+  const [weights, setWeights] = useState<{ wq: number; ws: number; wb: number }>({ wq: 0.5, ws: 0.25, wb: 0.25 });
   const [qualityParams, setQualityParams] = useState<{ V0: number; k: number }>({ V0: 70, k: 0.2 });
   const [finalScore, setFinalScore] = useState<{ overall: number; quality: number; speed: number; bitrate: number; bitrateRational: number } | null>(null);
   const [efficiencyRatio, setEfficiencyRatio] = useState<number | null>(null);
@@ -37,6 +37,7 @@ export default function Home() {
   const exportedNotifiedRef = useRef(false);
   const uploadSectionRef = useRef<HTMLDivElement | null>(null);
   const autoBitrateTriggeredRef = useRef<string | null>(null);
+  const mismatchWarnedRef = useRef<string | null>(null);
 
   const uploadProps = {
     multiple: false,
@@ -114,11 +115,53 @@ export default function Home() {
     }
   }, [originalVideo, exportedVideo]);
 
+  useEffect(() => {
+    if (originalVideo?.raw && exportedVideo?.raw) {
+      const key = `${originalVideo.name}:${originalVideo.size}|${exportedVideo.name}:${exportedVideo.size}`;
+      const resA = originalVideo.resolution || '';
+      const resB = exportedVideo.resolution || '';
+      const fpsA = originalFps;
+      const fpsB = exportedFps;
+      const resMismatch = (resA && resB) ? (resA !== resB) : false;
+      const fpsMismatch = (fpsA != null && fpsB != null) ? (Math.round(Number(fpsA)) !== Math.round(Number(fpsB))) : false;
+      if ((resMismatch || fpsMismatch) && mismatchWarnedRef.current !== key) {
+        mismatchWarnedRef.current = key;
+        message.error('两个视频的分辨率或帧率不一致，无法进行画质评估');
+      }
+    }
+  }, [originalVideo?.resolution, exportedVideo?.resolution, originalFps, exportedFps]);
+
   const handleQualityEvaluate = async () => {
     try {
       if (!originalVideo?.raw || !exportedVideo?.raw) {
         message.warning('请先在下方上传原视频与导出视频');
         uploadSectionRef.current?.scrollIntoView({ behavior: 'smooth' });
+        return;
+      }
+      // 分辨率/帧率一致性校验
+      const resA = originalVideo.resolution || '';
+      const resB = exportedVideo.resolution || '';
+      let fpsA = originalFps;
+      let fpsB = exportedFps;
+      // 如果帧率未知，快速探测一次
+      if (fpsA == null || fpsB == null) {
+        try {
+          const probe = await evaluateQuality({
+            before: originalVideo.raw,
+            after: exportedVideo.raw,
+            exportTimeSeconds: Number(exportTime || 0),
+            mode: 'bitrate'
+          });
+          fpsA = probe?.metrics?.fps_before != null ? Number(probe.metrics.fps_before) : fpsA;
+          fpsB = probe?.metrics?.fps_after != null ? Number(probe.metrics.fps_after) : fpsB;
+          if (fpsA != null) setOriginalFps(fpsA);
+          if (fpsB != null) setExportedFps(fpsB);
+        } catch {}
+      }
+      const resMismatch = (resA && resB) ? (resA !== resB) : false;
+      const fpsMismatch = (fpsA != null && fpsB != null) ? (Math.round(Number(fpsA)) !== Math.round(Number(fpsB))) : false;
+      if (resMismatch || fpsMismatch) {
+        message.error('两个视频的分辨率或帧率不一致，无法进行画质评估');
         return;
       }
       message.loading({ content: '画质评估中...', key: 'eval', duration: 0 });
@@ -549,7 +592,10 @@ export default function Home() {
                 title="原视频" 
                 className="shadow-sm" 
                 extra={originalVideo ? (
-                  <Button type="text" icon={<CloseOutlined />} onClick={handleClearOriginal}>关闭</Button>
+                  <Space size="small" align="center">
+                    <Text type="secondary" className="max-w-[240px] truncate">{originalVideo.name}</Text>
+                    <Button type="text" icon={<CloseOutlined />} onClick={handleClearOriginal}>关闭</Button>
+                  </Space>
                 ) : <EyeOutlined />}
               >
                 {originalVideo ? (
@@ -585,7 +631,10 @@ export default function Home() {
                 title="导出视频" 
                 className="shadow-sm" 
                 extra={exportedVideo ? (
-                  <Button type="text" icon={<CloseOutlined />} onClick={handleClearExported}>关闭</Button>
+                  <Space size="small" align="center">
+                    <Text type="secondary" className="max-w-[240px] truncate">{exportedVideo.name}</Text>
+                    <Button type="text" icon={<CloseOutlined />} onClick={handleClearExported}>关闭</Button>
+                  </Space>
                 ) : <EyeOutlined />}
               >
                 {exportedVideo ? (
@@ -675,6 +724,20 @@ export default function Home() {
                       <div>
                         <Text className="block mb-1">w_bitrate（码率合理性）</Text>
                         <input type="number" step="0.01" value={weights.wb} onChange={(e) => setWeights({ ...weights, wb: Number(e.target.value) })} className="border rounded px-2 py-1 w-full" />
+                      </div>
+                    </div>
+                    <div className="h-px bg-gray-200 my-2" />
+                    <div>
+                      <Text className="block mb-1">画质归一化方法（VMAF 映射）</Text>
+                      <div className="text-gray-500 text-sm">
+                        <span>使用 VMAF 作为画质指标，将其非线性归一化为 Q∈[0,1]：</span>
+                        <div>
+                          <span>Q = log(1 + k × (VMAF − V</span>
+                          <sub>0</sub>
+                          <span>)) ÷ log(1 + k × (100 − V</span>
+                          <sub>0</sub>
+                          <span>))</span>
+                        </div>
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
