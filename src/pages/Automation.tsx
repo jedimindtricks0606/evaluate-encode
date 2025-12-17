@@ -471,7 +471,20 @@ export default function Automation() {
                             if (cq) paramsList.push(`-cq:v ${cq}`);
                             if (matrixTemporalAQ) paramsList.push(`-temporal-aq 1`);
                             if (matrixSpatialAQ) paramsList.push(`-spatial-aq 1`);
-                            if (matrixProfile) paramsList.push(`-profile:v ${matrixProfile}`);
+                            {
+                              let profileArg: string | null = null;
+                              if (matrixProfile) {
+                                if (matrixEncoder === 'nvenc' && nvencCodec === 'hevc') {
+                                  const p = String(matrixProfile).toLowerCase();
+                                  if (p === 'high') profileArg = 'main';
+                                  else if (['main','main10','rext'].includes(p)) profileArg = matrixProfile;
+                                  else profileArg = 'main';
+                                } else {
+                                  profileArg = matrixProfile;
+                                }
+                              }
+                              if (profileArg) paramsList.push(`-profile:v ${profileArg}`);
+                            }
                             paramsList.push(`-c:a copy`);
                             if (matrixEncoder === 'nvenc') {
                               if (nvencTune) paramsList.push(`-tune ${nvencTune}`);
@@ -585,7 +598,20 @@ export default function Automation() {
                             if (cq) paramsList2.push(`-cq:v ${cq}`);
                             if (matrixTemporalAQ) paramsList2.push(`-temporal-aq 1`);
                             if (matrixSpatialAQ) paramsList2.push(`-spatial-aq 1`);
-                            if (matrixProfile) paramsList2.push(`-profile:v ${matrixProfile}`);
+                            {
+                              let profileArg2: string | null = null;
+                              if (matrixProfile) {
+                                if (matrixEncoder === 'nvenc' && nvencCodec === 'hevc') {
+                                  const p = String(matrixProfile).toLowerCase();
+                                  if (p === 'high') profileArg2 = 'main';
+                                  else if (['main','main10','rext'].includes(p)) profileArg2 = matrixProfile;
+                                  else profileArg2 = 'main';
+                                } else {
+                                  profileArg2 = matrixProfile;
+                                }
+                              }
+                              if (profileArg2) paramsList2.push(`-profile:v ${profileArg2}`);
+                            }
                             paramsList2.push(`-c:a copy`);
                             if (matrixEncoder === 'nvenc') {
                               if (nvencTune) paramsList2.push(`-tune ${nvencTune}`);

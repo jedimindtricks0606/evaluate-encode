@@ -6,6 +6,8 @@ import fs from 'fs';
 import path from 'path';
 import { spawnSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { pipeline } from 'stream/promises';
+import { Readable } from 'stream';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -444,12 +446,14 @@ app.post('/automation/save', express.json(), async (req, res) => {
     if (!url) return res.status(400).json({ status: 'error', message: 'missing url' });
     const resp = await fetch(String(url));
     if (!resp.ok) return res.status(resp.status).json({ status: 'error', message: `download failed: ${resp.status}` });
-    const ab = await resp.arrayBuffer();
-    const buf = Buffer.from(ab);
     if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
     const name = filename || path.basename(new URL(String(url)).pathname);
     const outPath = path.join(saveDir, name);
-    fs.writeFileSync(outPath, buf);
+    const body = resp.body;
+    if (!body) return res.status(500).json({ status: 'error', message: 'empty response body' });
+    const readable = Readable.fromWeb(body);
+    const ws = fs.createWriteStream(outPath, { flags: 'w' });
+    await pipeline(readable, ws);
     return res.json({ status: 'success', saved_path: outPath });
   } catch (e) {
     return res.status(500).json({ status: 'error', message: 'save failed', detail: String(e && e.message || e) });
