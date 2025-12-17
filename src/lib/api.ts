@@ -71,6 +71,41 @@ export async function automationUpload(options: {
   return data as any;
 }
 
+export async function automationUploadFile(options: {
+  serverIp: string;
+  serverPort: number;
+  file: File;
+}): Promise<{ status: string; message?: string; job_id?: string; input?: string }> {
+  const fd = new FormData();
+  fd.append('file', options.file);
+  fd.append('server_ip', options.serverIp);
+  fd.append('server_port', String(options.serverPort));
+  const resp = await fetch('http://localhost:3000/automation/upload_file', { method: 'POST', body: fd });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '上传源视频失败'));
+  return data as any;
+}
+
+export async function automationProcess(options: {
+  serverIp: string;
+  serverPort: number;
+  jobId: string;
+  command: string;
+  outputFilename?: string;
+}): Promise<{ status: string; message?: string; job_id?: string; input?: string; output?: string; download_path?: string; duration_ms?: number }> {
+  const body = {
+    server_ip: options.serverIp,
+    server_port: options.serverPort,
+    job_id: options.jobId,
+    command: options.command,
+    output_filename: options.outputFilename,
+  } as any;
+  const resp = await fetch('http://localhost:3000/automation/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '执行导出失败'));
+  return data as any;
+}
+
 export async function automationSave(options: {
   fullDownloadUrl: string;
   localSaveDir: string;

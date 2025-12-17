@@ -421,24 +421,32 @@ export default function Automation() {
               <Button type="primary" loading={matrixSubmitting} onClick={async () => {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
                   setMatrixExported(true);
                   setMatrixAllChosen(false);
                   setMatrixSubmitting(true);
+                  // upload input once
+                  let jobId: string | null = null;
                   // benchmark
                   try {
+                    const up = await (await import('@/lib/api')).automationUploadFile({ serverIp, serverPort, file: inputFile });
+                    jobId = String(up?.job_id || '');
                     const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                     const presetFast = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
                     const benchOut = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
                     const benchCmd = `ffmpeg -y -i {input} -c:v ${codec} -preset ${presetFast} -c:a copy {output}`;
-                    const benchResp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: benchCmd, outputFilename: benchOut });
-                    if (benchResp?.status === 'success' && benchResp?.duration_ms != null) {
-                      setBenchmarkDurationMs(Number(benchResp.duration_ms));
-                    } else {
-                      setBenchmarkDurationMs(null);
+                    if (jobId) {
+                      const benchResp = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId, command: benchCmd, outputFilename: benchOut });
+                      if (benchResp?.status === 'success' && benchResp?.duration_ms != null) {
+                        setBenchmarkDurationMs(Number(benchResp.duration_ms));
+                      } else {
+                        setBenchmarkDurationMs(null);
+                      }
                     }
                   } catch (_) {
                     setBenchmarkDurationMs(null);
                   }
+                  if (!jobId) { message.error('源视频上传失败，未获取到 job_id'); return; }
                   const presets = matrixPresets.split(',').map(s => s.trim()).filter(Boolean);
                   const bitrates = matrixBitrates.split(',').map(s => s.trim()).filter(Boolean);
                   const maxrates = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
@@ -479,10 +487,11 @@ export default function Automation() {
                     }
                   }
                   addMatrixJobs(jobs);
-                  // submit sequentially with save retry
+                  // submit sequentially with save retry (process with existing job)
+                  let processed = 0;
                   for (const job of jobs) {
                     try {
-                      const resp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: job.command, outputFilename: job.outputFilename });
+                      const resp = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId, command: job.command, outputFilename: job.outputFilename });
                       if (resp.status === 'success') {
                         const dp = String(resp.download_path || '');
                         const full = `http://${serverIp}:${serverPort}${dp}`;
@@ -507,12 +516,17 @@ export default function Automation() {
                           const obj = URL.createObjectURL(blob);
                           updateMatrixJob(job.id, { previewUrl: obj });
                         } catch (_) {}
+                        processed++;
                       }
                     } catch (e) {
                       // ignore failed job
                     }
                   }
-                  message.success('全部导出并下载完成');
+                  if (processed > 0) {
+                    message.success('全部导出并下载完成');
+                  } else {
+                    message.error('未处理任何导出任务');
+                  }
                 } catch (e) {
                   message.error('提交失败');
                 } finally {
@@ -523,23 +537,30 @@ export default function Automation() {
               <Button loading={matrixAllRunning} onClick={async () => {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
                   setMatrixAllChosen(true);
                   setMatrixExported(false);
                   setMatrixAllRunning(true);
+                  let jobId0: string | null = null;
                   try {
-                    const codec0 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                    const up0 = await (await import('@/lib/api')).automationUploadFile({ serverIp, serverPort, file: inputFile });
+                    jobId0 = String(up0?.job_id || '');
+                    const codec0 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                     const presetFast0 = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
                     const benchOut0 = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
                     const benchCmd0 = `ffmpeg -y -i {input} -c:v ${codec0} -preset ${presetFast0} -c:a copy {output}`;
-                    const benchResp0 = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: benchCmd0, outputFilename: benchOut0 });
-                    if (benchResp0?.status === 'success' && benchResp0?.duration_ms != null) {
-                      setBenchmarkDurationMs(Number(benchResp0.duration_ms));
-                    } else {
-                      setBenchmarkDurationMs(null);
+                    if (jobId0) {
+                      const benchResp0 = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId: jobId0, command: benchCmd0, outputFilename: benchOut0 });
+                      if (benchResp0?.status === 'success' && benchResp0?.duration_ms != null) {
+                        setBenchmarkDurationMs(Number(benchResp0.duration_ms));
+                      } else {
+                        setBenchmarkDurationMs(null);
+                      }
                     }
                   } catch (_) {
                     setBenchmarkDurationMs(null);
                   }
+                  if (!jobId0) { message.error('源视频上传失败，未获取到 job_id'); setMatrixAllRunning(false); return; }
                   const presets0 = matrixPresets.split(',').map(s => s.trim()).filter(Boolean);
                   const bitrates0 = matrixBitrates.split(',').map(s => s.trim()).filter(Boolean);
                   const maxrates0 = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
@@ -581,9 +602,10 @@ export default function Automation() {
                   }
                   addMatrixJobs(jobs0);
                   const exportedList: { id: string; url: string; durMs: number | null; name: string }[] = [];
+                  let processed0 = 0;
                   for (const job of jobs0) {
                     try {
-                      const resp2 = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: job.command, outputFilename: job.outputFilename });
+                      const resp2 = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId: jobId0, command: job.command, outputFilename: job.outputFilename });
                       if (resp2.status === 'success') {
                         const dp2 = String(resp2.download_path || '');
                         const full2 = `http://${serverIp}:${serverPort}${dp2}`;
@@ -608,9 +630,11 @@ export default function Automation() {
                           updateMatrixJob(job.id, { previewUrl: obj2 });
                         } catch (_) {}
                         exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename });
+                        processed0++;
                       }
                     } catch (_) {}
                   }
+                  if (processed0 === 0) { message.error('未处理任何导出任务'); setMatrixAllRunning(false); return; }
                   for (const ex of exportedList) {
                     try {
                       const f3 = await fetch(ex.url);

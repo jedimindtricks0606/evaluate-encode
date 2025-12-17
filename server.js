@@ -494,6 +494,53 @@ app.post('/automation/save-csv', express.json({ limit: '10mb' }), async (req, re
   }
 });
 
+// Upload input file once to external FFmpeg server
+app.post('/automation/upload_file', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    const serverIp = req.body?.server_ip || req.body?.serverIp;
+    const serverPort = Number(req.body?.server_port || req.body?.serverPort || 5000);
+    if (!file) return res.status(400).json({ status: 'error', message: 'missing file' });
+    if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
+    const buffer = fs.readFileSync(file.path);
+    const blob = new Blob([buffer]);
+    const fd = new FormData();
+    fd.append('file', blob, file.originalname || 'input.mp4');
+    const url = `http://${serverIp}:${serverPort}/upload_file`;
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    const data = await resp.json().catch(() => ({}));
+    try { fs.unlinkSync(file.path); } catch (_) {}
+    if (!resp.ok) return res.status(resp.status).json(data);
+    return res.json(data);
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'proxy upload_file failed', detail: String(e && e.message || e) });
+  }
+});
+
+// Process export using previously uploaded input
+app.post('/automation/process', express.json(), async (req, res) => {
+  try {
+    const serverIp = req.body?.server_ip || req.body?.serverIp;
+    const serverPort = Number(req.body?.server_port || req.body?.serverPort || 5000);
+    const jobId = req.body?.job_id || req.body?.jobId;
+    const command = req.body?.command;
+    const outputFilename = req.body?.output_filename || req.body?.outputFilename || 'output.mp4';
+    if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
+    if (!jobId) return res.status(400).json({ status: 'error', message: 'missing job_id' });
+    if (!command) return res.status(400).json({ status: 'error', message: 'missing command' });
+    const fd = new FormData();
+    fd.append('job_id', String(jobId));
+    fd.append('command', String(command));
+    fd.append('output_filename', String(outputFilename));
+    const url = `http://${serverIp}:${serverPort}/process`;
+    const resp = await fetch(url, { method: 'POST', body: fd });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) return res.status(resp.status).json(data);
+    return res.json(data);
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: 'proxy process failed', detail: String(e && e.message || e) });
+  }
+});
 app.post('/automation/save-upload', upload.single('file'), async (req, res) => {
   try {
     const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
