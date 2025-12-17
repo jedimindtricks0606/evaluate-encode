@@ -46,6 +46,10 @@ export default function Automation() {
   const [matrixTemporalAQ, setMatrixTemporalAQ] = useState<boolean>(true);
   const [matrixSpatialAQ, setMatrixSpatialAQ] = useState<boolean>(true);
   const [matrixProfile, setMatrixProfile] = useState<string>('high');
+  const [nvencCodec, setNvencCodec] = useState<'h264' | 'hevc'>('h264');
+  const [nvencTune, setNvencTune] = useState<string>('');
+  const [nvencRcLookahead, setNvencRcLookahead] = useState<string>('');
+  const [nvencMinrate, setNvencMinrate] = useState<string>('');
   const [matrixSubmitting, setMatrixSubmitting] = useState(false);
   const [batchEvaluating, setBatchEvaluating] = useState(false);
   const [matrixAllRunning, setMatrixAllRunning] = useState(false);
@@ -335,24 +339,25 @@ export default function Automation() {
                   <option value="nvenc">nvenc</option>
                 </select>
               </Col>
+              {matrixEncoder === 'nvenc' && (
+              <Col span={6}>
+                <Text className="block mb-1">NVENC 编码格式 (-c:v)</Text>
+                <select value={nvencCodec} onChange={(e) => setNvencCodec(e.target.value as any)} className="border rounded px-2 py-1 w-full">
+                  <option value="h264">h264</option>
+                  <option value="hevc">hevc</option>
+                </select>
+              </Col>
+              )}
               <Col span={6}>
                 <Text className="block mb-1">preset（逗号分隔）</Text>
                 <input type="text" value={matrixPresets} onChange={(e) => setMatrixPresets(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="p7,p6" />
               </Col>
               <Col span={6}>
-                <Text className="block mb-1">b:v（逗号分隔）</Text>
-                <input type="text" value={matrixBitrates} onChange={(e) => setMatrixBitrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="8M,10M" />
-              </Col>
-              <Col span={6}>
-                <Text className="block mb-1">maxrate（逗号分隔）</Text>
-                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="10M" />
+                <Text className="block mb-1">profile</Text>
+                <input type="text" value={matrixProfile} onChange={(e) => setMatrixProfile(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="high" />
               </Col>
             </Row>
             <Row gutter={16}>
-              <Col span={6}>
-                <Text className="block mb-1">bufsize（逗号分隔）</Text>
-                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="12M" />
-              </Col>
               <Col span={6}>
                 <Text className="block mb-1">rc 模式</Text>
                 <select value={matrixRcMode} onChange={(e) => setMatrixRcMode(e.target.value)} className="border rounded px-2 py-1 w-full">
@@ -365,9 +370,37 @@ export default function Automation() {
                 <Text className="block mb-1">cq（逗号分隔）</Text>
                 <input type="text" value={matrixCqValues} onChange={(e) => setMatrixCqValues(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="23,28" />
               </Col>
+              {matrixEncoder === 'nvenc' && (
               <Col span={6}>
-                <Text className="block mb-1">profile</Text>
-                <input type="text" value={matrixProfile} onChange={(e) => setMatrixProfile(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="high" />
+                <Text className="block mb-1">tune</Text>
+                <input type="text" value={nvencTune} onChange={(e) => setNvencTune(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="hq,ll,ull,lossless" />
+              </Col>
+              )}
+              {matrixEncoder === 'nvenc' && (
+              <Col span={6}>
+                <Text className="block mb-1">rc-lookahead</Text>
+                <input type="number" min={0} step={1} value={nvencRcLookahead} onChange={(e) => setNvencRcLookahead(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="20" />
+              </Col>
+              )}
+            </Row>
+            <Row gutter={16}>
+              <Col span={6}>
+                <Text className="block mb-1">b:v（逗号分隔）</Text>
+                <input type="text" value={matrixBitrates} onChange={(e) => setMatrixBitrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="8M,10M" />
+              </Col>
+              <Col span={6}>
+                <Text className="block mb-1">maxrate</Text>
+                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="10M" />
+              </Col>
+              {matrixEncoder === 'nvenc' && (
+              <Col span={6}>
+                <Text className="block mb-1">minrate</Text>
+                <input type="text" value={nvencMinrate} onChange={(e) => setNvencMinrate(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="8M" />
+              </Col>
+              )}
+              <Col span={6}>
+                <Text className="block mb-1">bufsize（逗号分隔）</Text>
+                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="12M" />
               </Col>
             </Row>
             <Row gutter={16}>
@@ -393,7 +426,7 @@ export default function Automation() {
                   setMatrixSubmitting(true);
                   // benchmark
                   try {
-                    const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                    const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                     const presetFast = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
                     const benchOut = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
                     const benchCmd = `ffmpeg -y -i {input} -c:v ${codec} -preset ${presetFast} -c:a copy {output}`;
@@ -411,37 +444,42 @@ export default function Automation() {
                   const maxrates = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
                   const bufsizes = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
                   const cqs = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
-                  const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                  const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                   const jobs = [] as any[];
                   const now = Date.now();
-                  for (const preset of (presets.length ? presets : ['p7'])) {
-                    for (const b of (bitrates.length ? bitrates : ['8M'])) {
-                      for (const mr of (maxrates.length ? maxrates : [b])) {
-                        for (const bs of (bufsizes.length ? bufsizes : ['12M'])) {
-                          for (const cq of (cqs.length ? cqs : ['23'])) {
+                  for (const preset of (presets.length ? presets : [''])) {
+                    for (const b of (bitrates.length ? bitrates : [''])) {
+                      for (const mr of (maxrates.length ? maxrates : [''])) {
+                        for (const bs of (bufsizes.length ? bufsizes : [''])) {
+                          for (const cq of (cqs.length ? cqs : [''])) {
                             const outfile = `auto_${matrixEncoder}_${preset}_${b}_${cq}_${now}.mp4`;
-                            const params = [
-                              `-c:v ${codec}`,
-                              `-preset ${preset}`,
-                              `-b:v ${b}`,
-                              `-maxrate ${mr}`,
-                              `-bufsize ${bs}`,
-                              `-rc:v ${matrixRcMode}`,
-                              `-cq:v ${cq}`,
-                              `-temporal-aq ${matrixTemporalAQ ? 1 : 0}`,
-                              `-spatial-aq ${matrixSpatialAQ ? 1 : 0}`,
-                              `-profile:v ${matrixProfile}`,
-                              `-c:a copy`,
-                            ].join(' ');
+                            const paramsList: string[] = [];
+                            paramsList.push(`-c:v ${codec}`);
+                            if (preset) paramsList.push(`-preset ${preset}`);
+                            if (b) paramsList.push(`-b:v ${b}`);
+                            if (mr) paramsList.push(`-maxrate ${mr}`);
+                            if (bs) paramsList.push(`-bufsize ${bs}`);
+                            if (matrixRcMode) paramsList.push(`-rc:v ${matrixRcMode}`);
+                            if (cq) paramsList.push(`-cq:v ${cq}`);
+                            if (matrixTemporalAQ) paramsList.push(`-temporal-aq 1`);
+                            if (matrixSpatialAQ) paramsList.push(`-spatial-aq 1`);
+                            if (matrixProfile) paramsList.push(`-profile:v ${matrixProfile}`);
+                            paramsList.push(`-c:a copy`);
+                            if (matrixEncoder === 'nvenc') {
+                              if (nvencTune) paramsList.push(`-tune ${nvencTune}`);
+                              if (nvencRcLookahead) paramsList.push(`-rc-lookahead ${nvencRcLookahead}`);
+                              if (nvencMinrate) paramsList.push(`-minrate ${nvencMinrate}`);
+                            }
+                            const params = paramsList.join(' ');
                             const command = `ffmpeg -y -i {input} ${params} {output}`;
-                            jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq }, command, outputFilename: outfile });
+                            jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
                           }
                         }
                       }
                     }
                   }
                   addMatrixJobs(jobs);
-                  // submit sequentially
+                  // submit sequentially with save retry
                   for (const job of jobs) {
                     try {
                       const resp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: job.command, outputFilename: job.outputFilename });
@@ -450,9 +488,18 @@ export default function Automation() {
                         const full = `http://${serverIp}:${serverPort}${dp}`;
                         const durMs = resp.duration_ms != null ? Number(resp.duration_ms) : null;
                         updateMatrixJob(job.id, { downloadUrl: full, exportDurationMs: durMs });
-                        // auto save locally
-                        const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
-                        updateMatrixJob(job.id, { savedPath: saveResp.saved_path || null });
+                        // auto save locally with simple retry
+                        let saved: string | null = null;
+                        for (let attempt = 0; attempt < 3 && !saved; attempt++) {
+                          try {
+                            const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
+                            if (saveResp?.saved_path) saved = String(saveResp.saved_path);
+                            if (!saved) await new Promise(r => setTimeout(r, 1500));
+                          } catch (_) {
+                            await new Promise(r => setTimeout(r, 1500));
+                          }
+                        }
+                        updateMatrixJob(job.id, { savedPath: saved });
                         // preview URL
                         try {
                           const f = await fetch(full);
@@ -465,7 +512,7 @@ export default function Automation() {
                       // ignore failed job
                     }
                   }
-                  message.success('矩阵任务已提交');
+                  message.success('全部导出并下载完成');
                 } catch (e) {
                   message.error('提交失败');
                 } finally {
@@ -498,37 +545,42 @@ export default function Automation() {
                   const maxrates0 = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
                   const bufsizes0 = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
                   const cqs0 = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
-                  const codec1 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : 'h264_nvenc');
+                  const codec1 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                   const jobs0 = [] as any[];
                   const now0 = Date.now();
-                  for (const preset of (presets0.length ? presets0 : ['p7'])) {
-                    for (const b of (bitrates0.length ? bitrates0 : ['8M'])) {
-                      for (const mr of (maxrates0.length ? maxrates0 : [b])) {
-                        for (const bs of (bufsizes0.length ? bufsizes0 : ['12M'])) {
-                          for (const cq of (cqs0.length ? cqs0 : ['23'])) {
+                  for (const preset of (presets0.length ? presets0 : [''])) {
+                    for (const b of (bitrates0.length ? bitrates0 : [''])) {
+                      for (const mr of (maxrates0.length ? maxrates0 : [''])) {
+                        for (const bs of (bufsizes0.length ? bufsizes0 : [''])) {
+                          for (const cq of (cqs0.length ? cqs0 : [''])) {
                             const outfile = `auto_${matrixEncoder}_${preset}_${b}_${cq}_${now0}.mp4`;
-                            const params = [
-                              `-c:v ${codec1}`,
-                              `-preset ${preset}`,
-                              `-b:v ${b}`,
-                              `-maxrate ${mr}`,
-                              `-bufsize ${bs}`,
-                              `-rc:v ${matrixRcMode}`,
-                              `-cq:v ${cq}`,
-                              `-temporal-aq ${matrixTemporalAQ ? 1 : 0}`,
-                              `-spatial-aq ${matrixSpatialAQ ? 1 : 0}`,
-                              `-profile:v ${matrixProfile}`,
-                              `-c:a copy`,
-                            ].join(' ');
+                            const paramsList2: string[] = [];
+                            paramsList2.push(`-c:v ${codec1}`);
+                            if (preset) paramsList2.push(`-preset ${preset}`);
+                            if (b) paramsList2.push(`-b:v ${b}`);
+                            if (mr) paramsList2.push(`-maxrate ${mr}`);
+                            if (bs) paramsList2.push(`-bufsize ${bs}`);
+                            if (matrixRcMode) paramsList2.push(`-rc:v ${matrixRcMode}`);
+                            if (cq) paramsList2.push(`-cq:v ${cq}`);
+                            if (matrixTemporalAQ) paramsList2.push(`-temporal-aq 1`);
+                            if (matrixSpatialAQ) paramsList2.push(`-spatial-aq 1`);
+                            if (matrixProfile) paramsList2.push(`-profile:v ${matrixProfile}`);
+                            paramsList2.push(`-c:a copy`);
+                            if (matrixEncoder === 'nvenc') {
+                              if (nvencTune) paramsList2.push(`-tune ${nvencTune}`);
+                              if (nvencRcLookahead) paramsList2.push(`-rc-lookahead ${nvencRcLookahead}`);
+                              if (nvencMinrate) paramsList2.push(`-minrate ${nvencMinrate}`);
+                            }
+                            const params = paramsList2.join(' ');
                             const command = `ffmpeg -y -i {input} ${params} {output}`;
-                            jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq }, command, outputFilename: outfile });
+                            jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
                           }
                         }
                       }
                     }
                   }
                   addMatrixJobs(jobs0);
-                  const evalPromises: Promise<void>[] = [];
+                  const exportedList: { id: string; url: string; durMs: number | null; name: string }[] = [];
                   for (const job of jobs0) {
                     try {
                       const resp2 = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: job.command, outputFilename: job.outputFilename });
@@ -537,39 +589,47 @@ export default function Automation() {
                         const full2 = `http://${serverIp}:${serverPort}${dp2}`;
                         const durMs2 = resp2.duration_ms != null ? Number(resp2.duration_ms) : null;
                         updateMatrixJob(job.id, { downloadUrl: full2, exportDurationMs: durMs2 });
-                        const saveResp2 = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full2, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
-                        updateMatrixJob(job.id, { savedPath: saveResp2.saved_path || null });
+                        // auto save locally with simple retry
+                        let saved2: string | null = null;
+                        for (let attempt = 0; attempt < 3 && !saved2; attempt++) {
+                          try {
+                            const saveResp2 = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full2, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
+                            if (saveResp2?.saved_path) saved2 = String(saveResp2.saved_path);
+                            if (!saved2) await new Promise(r => setTimeout(r, 1500));
+                          } catch (_) {
+                            await new Promise(r => setTimeout(r, 1500));
+                          }
+                        }
+                        updateMatrixJob(job.id, { savedPath: saved2 });
                         try {
                           const f2 = await fetch(full2);
                           const blob2 = await f2.blob();
                           const obj2 = URL.createObjectURL(blob2);
                           updateMatrixJob(job.id, { previewUrl: obj2 });
                         } catch (_) {}
-                        const p = (async () => {
-                          try {
-                            const f3 = await fetch(full2);
-                            if (f3.ok) {
-                              const blob3 = await f3.blob();
-                              const afterFile3 = new File([blob3], job.outputFilename, { type: blob3.type || 'video/mp4' });
-                              const expSecVal = durMs2 ? (durMs2 / 1000) : (inputDuration || 30);
-                              const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
-                              const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
-                              const summary3 = {
-                                overall: Number(evalResp3?.final_score ?? 0),
-                                vmaf: evalResp3?.metrics?.vmaf,
-                                psnr: evalResp3?.metrics?.psnr_db,
-                                ssim: evalResp3?.metrics?.ssim,
-                                bitrate_after_kbps: (evalResp3?.metrics?.bitrate_after_bps ?? 0) / 1000,
-                              };
-                              updateMatrixJob(job.id, { evalSavedJsonPath: saveJson3?.url || null, evalSummary: summary3 });
-                            }
-                          } catch (_) {}
-                        })();
-                        evalPromises.push(p);
+                        exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename });
                       }
                     } catch (_) {}
                   }
-                  await Promise.all(evalPromises);
+                  for (const ex of exportedList) {
+                    try {
+                      const f3 = await fetch(ex.url);
+                      if (!f3.ok) continue;
+                      const blob3 = await f3.blob();
+                      const afterFile3 = new File([blob3], ex.name, { type: blob3.type || 'video/mp4' });
+                      const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
+                      const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${ex.name.replace(/\.mp4$/,'')}_evaluation.json` });
+                      const summary3 = {
+                        overall: Number(evalResp3?.final_score ?? 0),
+                        vmaf: evalResp3?.metrics?.vmaf,
+                        psnr: evalResp3?.metrics?.psnr_db,
+                        ssim: evalResp3?.metrics?.ssim,
+                        bitrate_after_kbps: (evalResp3?.metrics?.bitrate_after_bps ?? 0) / 1000,
+                      };
+                      updateMatrixJob(ex.id, { evalSavedJsonPath: saveJson3?.url || null, evalSummary: summary3 });
+                    } catch (_) {}
+                  }
                   message.success('矩阵评估完成');
                 } catch (e) {
                   message.error('矩阵评估失败');
@@ -623,7 +683,7 @@ export default function Automation() {
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={async () => {
               try {
                   const header = [
-                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','temporal_aq','spatial_aq','profile','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
+                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','temporal_aq','spatial_aq','profile','nvenc_codec','tune','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
                   ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
@@ -638,6 +698,10 @@ export default function Automation() {
                     String((p.temporal_aq ?? 1)),
                     String((p.spatial_aq ?? 1)),
                     String(p.profile ?? ''),
+                    String(p.nvenc_codec ?? ''),
+                    String(p.tune ?? ''),
+                    String(p.rc_lookahead ?? ''),
+                    String(p.minrate ?? ''),
                     j.outputFilename,
                     Number(j.evalSummary?.overall ?? 0).toFixed(4),
                     String(j.evalSummary?.vmaf ?? ''),
@@ -695,6 +759,12 @@ export default function Automation() {
                     <Space className="w-full" orientation="vertical" size="small">
                       {job.previewUrl && (
                         <video src={job.previewUrl || ''} controls className="w-full h-48 rounded" />
+                      )}
+                      {job.savedPath && (
+                        <div className="p-2 bg-gray-50 rounded">
+                          <Text type="secondary" className="block mb-1">已保存到</Text>
+                          <Text className="break-all">{job.savedPath}</Text>
+                        </div>
                       )}
                       <div className="flex gap-2">
                         <Button type="dashed" onClick={() => {
