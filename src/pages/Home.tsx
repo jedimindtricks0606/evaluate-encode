@@ -227,7 +227,7 @@ export default function Home() {
       if (resp.status !== 'success') throw new Error(String(resp.message || '服务器返回失败'));
       const dp = String(resp.download_path || '');
       const job = String(resp.job_id || '');
-      const full = `http://${serverIp}:${serverPort}${dp}`;
+      const full = serverIp === '0' ? `http://localhost:3000${dp}` : `http://${serverIp}:${serverPort}${dp}`;
       setAutomationJob({ job_id: job, download_url: full });
       message.success({ content: '任务已提交，等待处理完成', key: 'auto', duration: 2 });
     } catch (e: any) {
@@ -240,9 +240,9 @@ export default function Home() {
       if (!automationJob?.download_url) { message.warning('暂无下载地址'); return; }
       setAutomationSaving(true);
       message.loading({ content: '结果保存中...', key: 'save', duration: 0 });
-      const resp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: automationJob.download_url, localSaveDir: '/Users/jinghuan/evaluate-server', filename: outputFilename });
+      const resp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: automationJob.download_url, localSaveDir: '', filename: outputFilename });
       if (resp.status !== 'success') throw new Error(String(resp.message || '保存失败'));
-      message.success({ content: `已保存：${resp.saved_path || '/Users/jinghuan/evaluate-server'}`, key: 'save', duration: 2 });
+      message.success({ content: `已保存：${resp.saved_path || ''}`, key: 'save', duration: 2 });
     } catch (e: any) {
       message.error({ content: String(e?.message || e), key: 'save' });
     } finally {
@@ -254,14 +254,19 @@ export default function Home() {
     try {
       if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
       setPingLoading(true);
-      const url = `http://${serverIp}:${serverPort}/health`;
-      const resp = await fetch(url, { method: 'GET' });
-      if (resp.ok) {
+      if (serverIp === '0') {
         setServerHealth('ok');
-        message.success('服务器正常');
+        message.success('本地服务模式');
       } else {
-        setServerHealth('fail');
-        message.error('服务器不可达');
+        const url = `http://${serverIp}:${serverPort}/health`;
+        const resp = await fetch(url, { method: 'GET' });
+        if (resp.ok) {
+          setServerHealth('ok');
+          message.success('服务器正常');
+        } else {
+          setServerHealth('fail');
+          message.error('服务器不可达');
+        }
       }
     } catch (e) {
       setServerHealth('fail');

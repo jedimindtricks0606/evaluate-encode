@@ -100,14 +100,19 @@ export default function Automation() {
     try {
       if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
       setPingLoading(true);
-      const url = `http://${serverIp}:${serverPort}/health`;
-      const resp = await fetch(url, { method: 'GET' });
-      if (resp.ok) {
+      if (serverIp === '0') {
         setServerHealth('ok');
-        message.success('服务器正常');
+        message.success('本地服务模式');
       } else {
-        setServerHealth('fail');
-        message.error('服务器不可达');
+        const url = `http://${serverIp}:${serverPort}/health`;
+        const resp = await fetch(url, { method: 'GET' });
+        if (resp.ok) {
+          setServerHealth('ok');
+          message.success('服务器正常');
+        } else {
+          setServerHealth('fail');
+          message.error('服务器不可达');
+        }
       }
     } catch (e) {
       setServerHealth('fail');
@@ -129,14 +134,14 @@ export default function Automation() {
       const resp = await (await import('@/lib/api')).automationUpload({ serverIp, serverPort, file: inputFile, command: cmd, outputFilename });
       if (resp.status !== 'success') throw new Error(String(resp.message || '服务器返回失败'));
       const dp = String(resp.download_path || '');
-      const full = `http://${serverIp}:${serverPort}${dp}`;
+      const full = serverIp === '0' ? `http://localhost:3000${dp}` : `http://${serverIp}:${serverPort}${dp}`;
       setJobDownloadUrl(full);
       if (resp.duration_ms != null) setSingleExportDurationMs(Number(resp.duration_ms));
       message.success({ content: '任务已提交', key: 'auto', duration: 2 });
       // 自动下载并保存到本地
       try {
         setSavingAuto(true);
-        const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: outputFilename });
+        const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '', filename: outputFilename });
         if (saveResp.status === 'success') {
           setAutoSavedPath(String(saveResp.saved_path || ''));
         } else {
@@ -173,9 +178,9 @@ export default function Automation() {
       if (!jobDownloadUrl) { message.warning('暂无下载地址'); return; }
       setSaving(true);
       message.loading({ content: '结果保存中...', key: 'save', duration: 0 });
-      const resp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: jobDownloadUrl, localSaveDir: '/Users/jinghuan/evaluate-server', filename: outputFilename });
+      const resp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: jobDownloadUrl, localSaveDir: '', filename: outputFilename });
       if (resp.status !== 'success') throw new Error(String(resp.message || '保存失败'));
-      message.success({ content: `已保存：${resp.saved_path || '/Users/jinghuan/evaluate-server'}`, key: 'save', duration: 2 });
+      message.success({ content: `已保存：${resp.saved_path || ''}`, key: 'save', duration: 2 });
     } catch (e: any) {
       message.error({ content: String(e?.message || e), key: 'save' });
     } finally {
@@ -507,14 +512,14 @@ export default function Automation() {
                       const resp = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId, command: job.command, outputFilename: job.outputFilename });
                       if (resp.status === 'success') {
                         const dp = String(resp.download_path || '');
-                        const full = `http://${serverIp}:${serverPort}${dp}`;
+                        const full = serverIp === '0' ? `http://localhost:3000${dp}` : `http://${serverIp}:${serverPort}${dp}`;
                         const durMs = resp.duration_ms != null ? Number(resp.duration_ms) : null;
                         updateMatrixJob(job.id, { downloadUrl: full, exportDurationMs: durMs });
                         // auto save locally with simple retry
                         let saved: string | null = null;
                         for (let attempt = 0; attempt < 3 && !saved; attempt++) {
                           try {
-                            const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
+                            const saveResp = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full, localSaveDir: '', filename: job.outputFilename });
                             if (saveResp?.saved_path) saved = String(saveResp.saved_path);
                             if (!saved) await new Promise(r => setTimeout(r, 1500));
                           } catch (_) {
@@ -634,14 +639,14 @@ export default function Automation() {
                       const resp2 = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId: jobId0, command: job.command, outputFilename: job.outputFilename });
                       if (resp2.status === 'success') {
                         const dp2 = String(resp2.download_path || '');
-                        const full2 = `http://${serverIp}:${serverPort}${dp2}`;
+                        const full2 = serverIp === '0' ? `http://localhost:3000${dp2}` : `http://${serverIp}:${serverPort}${dp2}`;
                         const durMs2 = resp2.duration_ms != null ? Number(resp2.duration_ms) : null;
                         updateMatrixJob(job.id, { downloadUrl: full2, exportDurationMs: durMs2 });
                         // auto save locally with simple retry
                         let saved2: string | null = null;
                         for (let attempt = 0; attempt < 3 && !saved2; attempt++) {
                           try {
-                            const saveResp2 = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full2, localSaveDir: '/Users/jinghuan/evaluate-server', filename: job.outputFilename });
+                            const saveResp2 = await (await import('@/lib/api')).automationSave({ fullDownloadUrl: full2, localSaveDir: '', filename: job.outputFilename });
                             if (saveResp2?.saved_path) saved2 = String(saveResp2.saved_path);
                             if (!saved2) await new Promise(r => setTimeout(r, 1500));
                           } catch (_) {
@@ -669,7 +674,7 @@ export default function Automation() {
                       const afterFile3 = new File([blob3], ex.name, { type: blob3.type || 'video/mp4' });
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
                       const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
-                      const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${ex.name.replace(/\.mp4$/,'')}_evaluation.json` });
+                      const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '', filename: `${ex.name.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary3 = {
                         overall: Number(evalResp3?.final_score ?? 0),
                         vmaf: evalResp3?.metrics?.vmaf,
@@ -703,7 +708,7 @@ export default function Automation() {
                       const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
                       const expSec = job.exportDurationMs ? (job.exportDurationMs / 1000) : (inputDuration || 30);
                       const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
-                      const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '/Users/jinghuan/evaluate-server', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
+                      const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary = {
                         overall: Number(evalResp?.final_score ?? 0),
                         vmaf: evalResp?.metrics?.vmaf,

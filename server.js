@@ -8,6 +8,7 @@ import { spawnSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,19 @@ if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
 const upload = multer({ dest: uploadDir });
 
 app.use(express.static(path.join(__dirname, 'public')));
+
+function getBaseDir() {
+  const platform = os.platform();
+  if (platform === 'win32') return 'E:\\evaluate-server';
+  const home = os.homedir() || process.env.HOME || '';
+  return path.join(home || '~', 'evaluate-server');
+}
+const BASE_DIR = getBaseDir();
+const FFMPEG_DIR = path.join(BASE_DIR, 'ffmpeg');
+try {
+  if (!fs.existsSync(BASE_DIR)) fs.mkdirSync(BASE_DIR, { recursive: true });
+  if (!fs.existsSync(FFMPEG_DIR)) fs.mkdirSync(FFMPEG_DIR, { recursive: true });
+} catch (_) {}
 
 function clamp01(x) {
   if (isNaN(x)) return 0;
@@ -145,7 +159,9 @@ function computePSNR(beforePath, afterPath) {
     '-f', 'null', '-'
   ];
   try {
+    console.log('[psnr] ffmpeg args', args.join(' '));
     const proc = spawnSync('ffmpeg', args, { encoding: 'utf8' });
+    console.log('[psnr] ffmpeg status', { status: proc.status, error: proc.error ? String(proc.error) : null, stderr_head: (proc.stderr || '').split(/\r?\n/).slice(0, 5) });
     const text = (proc.stderr || '') + (proc.stdout || '');
     const lines = text.split(/\r?\n/).filter(Boolean);
     let avg = null;
@@ -169,7 +185,9 @@ function computeSSIM(beforePath, afterPath) {
     '-f', 'null', '-'
   ];
   try {
+    console.log('[ssim] ffmpeg args', args.join(' '));
     const proc = spawnSync('ffmpeg', args, { encoding: 'utf8' });
+    console.log('[ssim] ffmpeg status', { status: proc.status, error: proc.error ? String(proc.error) : null, stderr_head: (proc.stderr || '').split(/\r?\n/).slice(0, 5) });
     const text = (proc.stderr || '') + (proc.stdout || '');
     const lines = text.split(/\r?\n/).filter(Boolean);
     let all = null;
@@ -186,19 +204,30 @@ function computeSSIM(beforePath, afterPath) {
 }
 
 function computeVMAF(beforePath, afterPath) {
-  // Try libvmaf with JSON log; return mean VMAF if available
-  const tmpJson = path.join(uploadDir, `vmaf_${Date.now()}.json`);
+  const stamp = Date.now();
+  const tmpJsonRel = path.join('uploads', `vmaf_${stamp}.json`).replace(/\\/g, '/');
+  const tmpJsonAbs = path.join(__dirname, tmpJsonRel);
+  const lavfi = `[0:v][1:v]scale2ref=flags=bicubic[dist][ref];` +
+                `[dist]format=pix_fmts=yuv420p[distf];` +
+                `[ref]format=pix_fmts=yuv420p[reff];` +
+                `[distf][reff]libvmaf=log_fmt=json:log_path=${tmpJsonRel}`;
   const args = [
     '-hide_banner',
     '-i', afterPath,
     '-i', beforePath,
-    '-lavfi', `[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist][ref]libvmaf=log_fmt=json:log_path=${tmpJson}`,
+    '-lavfi', lavfi,
     '-f', 'null', '-'
   ];
   try {
-    spawnSync('ffmpeg', args, { encoding: 'utf8' });
-    if (fs.existsSync(tmpJson)) {
-      const j = JSON.parse(fs.readFileSync(tmpJson, 'utf8'));
+    const t0 = Date.now();
+    console.log('[vmaf] compute start', { beforePath, afterPath, log_path: tmpJsonRel });
+    console.log('[vmaf] ffmpeg args', args.join(' '));
+    const proc1 = spawnSync('ffmpeg', args, { encoding: 'utf8', cwd: __dirname });
+    console.log('[vmaf] ffmpeg status', { status: proc1.status, error: proc1.error ? String(proc1.error) : null, stderr_head: (proc1.stderr || '').split(/\r?\n/).slice(0, 5) });
+    const existsAbs = fs.existsSync(tmpJsonAbs);
+    console.log('[vmaf] log exist', { tmpJsonAbs, existsAbs, cost_ms: Date.now() - t0 });
+    if (existsAbs) {
+      const j = JSON.parse(fs.readFileSync(tmpJsonAbs, 'utf8'));
       // Prefer pooled_metrics.mean.vmaf if present
       const pooled = j?.pooled_metrics || j?.pooled_metrics?.vmaf;
       let mean = null;
@@ -210,23 +239,28 @@ function computeVMAF(beforePath, afterPath) {
         const vals = j.frames.map(f => Number(f.metrics?.vmaf)).filter(v => !isNaN(v));
         if (vals.length) mean = vals.reduce((a, b) => a + b, 0) / vals.length;
       }
-      fs.unlinkSync(tmpJson);
+      try { fs.unlinkSync(tmpJsonAbs); } catch (_) {}
+      console.log('[vmaf] parsed result', { pooled: !!pooled, frames: Array.isArray(j?.frames) ? j.frames.length : 0, mean });
       return isNaN(mean) ? null : mean;
     }
     return null;
   } catch (e) {
-    try { if (fs.existsSync(tmpJson)) fs.unlinkSync(tmpJson); } catch (_) {}
+    try { if (fs.existsSync(tmpJsonAbs)) fs.unlinkSync(tmpJsonAbs); } catch (_) {}
     // Fallback: parse console "VMAF score:" if any
     try {
       const args2 = [
         '-hide_banner', '-i', afterPath, '-i', beforePath,
-        '-lavfi', '[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist][ref]libvmaf',
+        '-lavfi', `[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist]format=pix_fmts=yuv420p[distf];[ref]format=pix_fmts=yuv420p[reff];[distf][reff]libvmaf`,
         '-f', 'null', '-'
       ];
-      const proc = spawnSync('ffmpeg', args2, { encoding: 'utf8' });
-      const text = (proc.stderr || '') + (proc.stdout || '');
+      console.log('[vmaf] fallback run', args2.join(' '));
+      const proc2 = spawnSync('ffmpeg', args2, { encoding: 'utf8', cwd: __dirname });
+      console.log('[vmaf] fallback status', { status: proc2.status, error: proc2.error ? String(proc2.error) : null, stderr_head: (proc2.stderr || '').split(/\r?\n/).slice(0, 5) });
+      const text = (proc2.stderr || '') + (proc2.stdout || '');
       const m = text.match(/VMAF\s*score\s*:\s*([0-9]+\.?[0-9]*)/i);
-      if (m) return Number(m[1]);
+      const val = m ? Number(m[1]) : null;
+      console.log('[vmaf] fallback parsed', { matched: !!m, value: val });
+      if (m) return val;
     } catch (_) {}
     return null;
   }
@@ -311,6 +345,21 @@ app.post('/evaluate', upload.fields([
       weights.speed * speedScore +
       weights.bitrate * bitrateScore
     );
+    console.log('[evaluate] summary', {
+      mode,
+      duration,
+      fps_before: fpsBefore,
+      fps_after: fpsAfter,
+      bitrate_before: bitrateBefore,
+      bitrate_after: bitrateAfter,
+      psnr,
+      vmaf,
+      ssim,
+      exportTimeSeconds,
+      weights,
+      scores: { quality: qualityScore, speed: speedScore, bitrate: bitrateScore },
+      final: finalScore
+    });
 
     // Cleanup temp files
     try { fs.unlinkSync(beforePath); } catch (_) {}
@@ -410,28 +459,41 @@ app.post('/automation/upload', upload.single('file'), async (req, res) => {
     const command = req.body?.command;
     const outputFilename = req.body?.output_filename || req.body?.outputFilename || 'output.mp4';
     if (!file) return res.status(400).json({ status: 'error', message: 'missing file' });
-    if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
     if (!command) return res.status(400).json({ status: 'error', message: 'missing command' });
     if (!(String(command).startsWith('ffmpeg') && command.includes('{input}') && command.includes('{output}'))) {
       return res.status(400).json({ status: 'error', message: 'invalid command, require ffmpeg with {input} and {output}' });
     }
 
-    const buffer = fs.readFileSync(file.path);
-    const blob = new Blob([buffer]);
-    const fd = new FormData();
-    fd.append('file', blob, file.originalname || 'input.mp4');
-    fd.append('command', String(command));
-    fd.append('output_filename', String(outputFilename));
-
-    const url = `http://${serverIp}:${serverPort}/upload`;
-    const resp = await fetch(url, { method: 'POST', body: fd });
-    const data = await resp.json().catch(() => ({}));
-    // Cleanup temp upload
-    try { fs.unlinkSync(file.path); } catch (_) {}
-    if (!resp.ok) {
-      return res.status(resp.status).json(data);
+    if (String(serverIp) === '0') {
+      const start = Date.now();
+      const inPath = file.path;
+      const outPath = path.join(FFMPEG_DIR, outputFilename);
+      const cmd = String(command).replace('{input}', `"${inPath}"`).replace('{output}', `"${outPath}"`);
+      const proc = spawnSync(cmd, { shell: true, encoding: 'utf8' });
+      const dur = Date.now() - start;
+      try { fs.unlinkSync(inPath); } catch (_) {}
+      if (proc.status !== 0) {
+        return res.status(500).json({ status: 'error', message: 'ffmpeg local run failed' });
+      }
+      const dp = `/files/ffmpeg/${outputFilename}`;
+      return res.json({ status: 'success', download_path: dp, duration_ms: dur });
+    } else {
+      if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
+      const buffer = fs.readFileSync(file.path);
+      const blob = new Blob([buffer]);
+      const fd = new FormData();
+      fd.append('file', blob, file.originalname || 'input.mp4');
+      fd.append('command', String(command));
+      fd.append('output_filename', String(outputFilename));
+      const url = `http://${serverIp}:${serverPort}/upload`;
+      const resp = await fetch(url, { method: 'POST', body: fd });
+      const data = await resp.json().catch(() => ({}));
+      try { fs.unlinkSync(file.path); } catch (_) {}
+      if (!resp.ok) {
+        return res.status(resp.status).json(data);
+      }
+      return res.json(data);
     }
-    return res.json(data);
   } catch (e) {
     return res.status(500).json({ status: 'error', message: 'proxy upload failed', detail: String(e && e.message || e) });
   }
@@ -441,7 +503,8 @@ app.post('/automation/upload', upload.single('file'), async (req, res) => {
 app.post('/automation/save', express.json(), async (req, res) => {
   try {
     const url = req.body?.url;
-    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const saveDirReq = req.body?.save_dir;
+    const saveDir = saveDirReq && String(saveDirReq).trim().length > 0 ? String(saveDirReq) : BASE_DIR;
     const filename = req.body?.filename || null;
     if (!url) return res.status(400).json({ status: 'error', message: 'missing url' });
     const resp = await fetch(String(url));
@@ -462,7 +525,7 @@ app.post('/automation/save', express.json(), async (req, res) => {
 
 // serve saved files directory for easy access
 try {
-  const SAVED_DIR = '/Users/jinghuan/evaluate-server';
+  const SAVED_DIR = BASE_DIR;
   if (!fs.existsSync(SAVED_DIR)) fs.mkdirSync(SAVED_DIR, { recursive: true });
   app.use('/files', express.static(SAVED_DIR));
 } catch (_) {}
@@ -471,7 +534,8 @@ try {
 app.post('/automation/save-json', express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const data = req.body?.data;
-    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const saveDirReq = req.body?.save_dir;
+    const saveDir = saveDirReq && String(saveDirReq).trim().length > 0 ? String(saveDirReq) : BASE_DIR;
     const filename = req.body?.filename || `evaluation_${Date.now()}.json`;
     if (!data) return res.status(400).json({ status: 'error', message: 'missing data' });
     if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
@@ -486,7 +550,8 @@ app.post('/automation/save-json', express.json({ limit: '10mb' }), async (req, r
 app.post('/automation/save-csv', express.json({ limit: '10mb' }), async (req, res) => {
   try {
     const csv = req.body?.csv;
-    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const saveDirReq = req.body?.save_dir;
+    const saveDir = saveDirReq && String(saveDirReq).trim().length > 0 ? String(saveDirReq) : BASE_DIR;
     const filename = req.body?.filename || `matrix_evaluation_${Date.now()}.csv`;
     if (!csv) return res.status(400).json({ status: 'error', message: 'missing csv' });
     if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
@@ -505,17 +570,26 @@ app.post('/automation/upload_file', upload.single('file'), async (req, res) => {
     const serverIp = req.body?.server_ip || req.body?.serverIp;
     const serverPort = Number(req.body?.server_port || req.body?.serverPort || 5000);
     if (!file) return res.status(400).json({ status: 'error', message: 'missing file' });
-    if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
-    const buffer = fs.readFileSync(file.path);
-    const blob = new Blob([buffer]);
-    const fd = new FormData();
-    fd.append('file', blob, file.originalname || 'input.mp4');
-    const url = `http://${serverIp}:${serverPort}/upload_file`;
-    const resp = await fetch(url, { method: 'POST', body: fd });
-    const data = await resp.json().catch(() => ({}));
-    try { fs.unlinkSync(file.path); } catch (_) {}
-    if (!resp.ok) return res.status(resp.status).json(data);
-    return res.json(data);
+    if (String(serverIp) === '0') {
+      const name = file.originalname || `input_${Date.now()}.mp4`;
+      const outPath = path.join(FFMPEG_DIR, `${Date.now()}_${name}`);
+      const buf = fs.readFileSync(file.path);
+      fs.writeFileSync(outPath, buf);
+      try { fs.unlinkSync(file.path); } catch (_) {}
+      return res.json({ status: 'success', job_id: outPath, input: `/files/ffmpeg/${path.basename(outPath)}` });
+    } else {
+      if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
+      const buffer = fs.readFileSync(file.path);
+      const blob = new Blob([buffer]);
+      const fd = new FormData();
+      fd.append('file', blob, file.originalname || 'input.mp4');
+      const url = `http://${serverIp}:${serverPort}/upload_file`;
+      const resp = await fetch(url, { method: 'POST', body: fd });
+      const data = await resp.json().catch(() => ({}));
+      try { fs.unlinkSync(file.path); } catch (_) {}
+      if (!resp.ok) return res.status(resp.status).json(data);
+      return res.json(data);
+    }
   } catch (e) {
     return res.status(500).json({ status: 'error', message: 'proxy upload_file failed', detail: String(e && e.message || e) });
   }
@@ -529,25 +603,40 @@ app.post('/automation/process', express.json(), async (req, res) => {
     const jobId = req.body?.job_id || req.body?.jobId;
     const command = req.body?.command;
     const outputFilename = req.body?.output_filename || req.body?.outputFilename || 'output.mp4';
-    if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
     if (!jobId) return res.status(400).json({ status: 'error', message: 'missing job_id' });
     if (!command) return res.status(400).json({ status: 'error', message: 'missing command' });
-    const fd = new FormData();
-    fd.append('job_id', String(jobId));
-    fd.append('command', String(command));
-    fd.append('output_filename', String(outputFilename));
-    const url = `http://${serverIp}:${serverPort}/process`;
-    const resp = await fetch(url, { method: 'POST', body: fd });
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) return res.status(resp.status).json(data);
-    return res.json(data);
+    if (String(serverIp) === '0') {
+      const start = Date.now();
+      const inPath = String(jobId);
+      const outPath = path.join(FFMPEG_DIR, outputFilename);
+      const cmd = String(command).replace('{input}', `"${inPath}"`).replace('{output}', `"${outPath}"`);
+      const proc = spawnSync(cmd, { shell: true, encoding: 'utf8' });
+      const dur = Date.now() - start;
+      if (proc.status !== 0) {
+        return res.status(500).json({ status: 'error', message: 'ffmpeg local run failed' });
+      }
+      const dp = `/files/ffmpeg/${outputFilename}`;
+      return res.json({ status: 'success', job_id: inPath, output: outPath, download_path: dp, duration_ms: dur });
+    } else {
+      if (!serverIp || !serverPort) return res.status(400).json({ status: 'error', message: 'missing server address' });
+      const fd = new FormData();
+      fd.append('job_id', String(jobId));
+      fd.append('command', String(command));
+      fd.append('output_filename', String(outputFilename));
+      const url = `http://${serverIp}:${serverPort}/process`;
+      const resp = await fetch(url, { method: 'POST', body: fd });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) return res.status(resp.status).json(data);
+      return res.json(data);
+    }
   } catch (e) {
     return res.status(500).json({ status: 'error', message: 'proxy process failed', detail: String(e && e.message || e) });
   }
 });
 app.post('/automation/save-upload', upload.single('file'), async (req, res) => {
   try {
-    const saveDir = req.body?.save_dir || '/Users/jinghuan/evaluate-server';
+    const saveDirReq = req.body?.save_dir;
+    const saveDir = saveDirReq && String(saveDirReq).trim().length > 0 ? String(saveDirReq) : BASE_DIR;
     const filename = req.body?.filename || (req.file?.originalname || `upload_${Date.now()}`);
     const tmpPath = req.file?.path;
     if (!tmpPath) return res.status(400).json({ status: 'error', message: 'missing file' });

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "tsc -b --noEmit"
+    "check": "tsc -b --noEmit",
+    "start": "node server.js"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -30,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.25.0",
+    "@rollup/rollup-win32-x64-msvc": "^4.53.5",
     "@tailwindcss/forms": "^0.5.10",
     "@types/node": "^22.19.3",
     "@types/react": "^18.3.12",
@@ -48,5 +50,18 @@
     "vite": "^6.3.5",
     "vite-plugin-trae-solo-badge": "^1.0.0",
     "vite-tsconfig-paths": "^5.1.4"
-  }
+  },
+  "description": "- 安装 Node.js（建议 18+）\r - 在项目根目录执行：\r ```\r npm install\r ```",
+  "main": "eslint.config.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jedimindtricks0606/evaluate-encode.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/jedimindtricks0606/evaluate-encode/issues"
+  },
+  "homepage": "https://github.com/jedimindtricks0606/evaluate-encode#readme"
 }
