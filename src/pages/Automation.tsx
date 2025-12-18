@@ -491,14 +491,12 @@ export default function Automation() {
                             const nameParts: string[] = ['auto', encTag];
                             if (preset) nameParts.push(`pre-${preset}`);
                             nameParts.push(`rc-${matrixRcMode}`);
-                            if (matrixRcMode !== 'constqp') {
-                              if (b) nameParts.push(`b-${b}`);
-                              if (mr) nameParts.push(`max-${mr}`);
-                              if (bs) nameParts.push(`buf-${bs}`);
-                              if (cq) nameParts.push(`cq-${cq}`);
-                            } else {
-                              if (qp) nameParts.push(`qp-${qp}`);
-                            }
+                            // 始终包含所有循环变量，确保文件名唯一
+                            if (b) nameParts.push(`b-${b}`);
+                            if (mr) nameParts.push(`max-${mr}`);
+                            if (bs) nameParts.push(`buf-${bs}`);
+                            if (cq) nameParts.push(`cq-${cq}`);
+                            if (qp) nameParts.push(`qp-${qp}`);
                             if (nvencTune) nameParts.push(`t-${nvencTune}`);
                             if (nvencMultipass) nameParts.push(`mp-${nvencMultipass}`);
                             if (la && la !== '0') nameParts.push(`la-${la}`);
@@ -512,7 +510,9 @@ export default function Automation() {
                               else if (!['main','main10','rext'].includes(p)) profTag = 'main';
                             }
                             if (profTag) nameParts.push(`pr-${profTag}`);
-                            const outfile = `${nameParts.join('_')}_${now}.mp4`;
+                            // 使用递增索引确保唯一性
+                            const jobIndex = jobs.length;
+                            const outfile = `${nameParts.join('_')}_${now}_${jobIndex}.mp4`;
                               const paramsList: string[] = [];
                               paramsList.push(`-c:v ${codec}`);
                               if (preset) paramsList.push(`-preset ${preset}`);
@@ -551,7 +551,8 @@ export default function Automation() {
                               }
                               const params = paramsList.join(' ');
                               const command = `ffmpeg -y -i {input} ${params} {output}`;
-                              jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
+                              // 使用索引确保 id 唯一
+                              jobs.push({ id: `${now}-${jobIndex}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
                           }
                         }
@@ -655,14 +656,12 @@ export default function Automation() {
                             const nameParts2: string[] = ['auto', encTag2];
                             if (preset) nameParts2.push(`pre-${preset}`);
                             nameParts2.push(`rc-${matrixRcMode}`);
-                            if (matrixRcMode !== 'constqp') {
-                              if (b) nameParts2.push(`b-${b}`);
-                              if (mr) nameParts2.push(`max-${mr}`);
-                              if (bs) nameParts2.push(`buf-${bs}`);
-                              if (cq) nameParts2.push(`cq-${cq}`);
-                            } else {
-                              if (qp) nameParts2.push(`qp-${qp}`);
-                            }
+                            // 始终包含所有循环变量，确保文件名唯一
+                            if (b) nameParts2.push(`b-${b}`);
+                            if (mr) nameParts2.push(`max-${mr}`);
+                            if (bs) nameParts2.push(`buf-${bs}`);
+                            if (cq) nameParts2.push(`cq-${cq}`);
+                            if (qp) nameParts2.push(`qp-${qp}`);
                             if (nvencTune) nameParts2.push(`t-${nvencTune}`);
                             if (nvencMultipass) nameParts2.push(`mp-${nvencMultipass}`);
                             if (la && la !== '0') nameParts2.push(`la-${la}`);
@@ -676,7 +675,9 @@ export default function Automation() {
                               else if (!['main','main10','rext'].includes(p2)) profTag2 = 'main';
                             }
                             if (profTag2) nameParts2.push(`pr-${profTag2}`);
-                            const outfile = `${nameParts2.join('_')}_${now0}.mp4`;
+                            // 使用递增索引确保唯一性
+                            const jobIndex = jobs0.length;
+                            const outfile = `${nameParts2.join('_')}_${now0}_${jobIndex}.mp4`;
                               const paramsList2: string[] = [];
                               paramsList2.push(`-c:v ${codec1}`);
                               if (preset) paramsList2.push(`-preset ${preset}`);
@@ -715,7 +716,8 @@ export default function Automation() {
                               }
                               const params = paramsList2.join(' ');
                               const command = `ffmpeg -y -i {input} ${params} {output}`;
-                              jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
+                              // 使用索引确保 id 唯一
+                              jobs0.push({ id: `${now0}-${jobIndex}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
                           }
                         }
@@ -763,9 +765,10 @@ export default function Automation() {
                     } catch (_) {}
                   }
                   if (processed0 === 0) { message.error('未处理任何导出任务'); setMatrixAllRunning(false); return; }
-                  for (const ex of exportedList) {
+                  // 并行评估，限制并发数为 2（避免 ffmpeg 进程过多导致系统资源耗尽）
+                  const EVAL_CONCURRENCY = 2;
+                  const evaluateOne = async (ex: typeof exportedList[0]) => {
                     try {
-                      // 复用已下载的 blob，无需重复 fetch
                       const afterFile3 = new File([ex.blob], ex.name, { type: ex.blob.type || 'video/mp4' });
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
                       const benchSecVal = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSecVal;
@@ -781,6 +784,11 @@ export default function Automation() {
                       };
                       updateMatrixJob(ex.id, { evalSavedJsonPath: saveJson3?.url || null, evalSummary: summary3 });
                     } catch (_) {}
+                  };
+                  // 分批并行执行
+                  for (let i = 0; i < exportedList.length; i += EVAL_CONCURRENCY) {
+                    const batch = exportedList.slice(i, i + EVAL_CONCURRENCY);
+                    await Promise.all(batch.map(evaluateOne));
                   }
                   message.success('矩阵评估完成');
                 } catch (e) {
@@ -795,13 +803,14 @@ export default function Automation() {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
                   setBatchEvaluating(true);
-                  for (const job of matrixJobs) {
+                  // 过滤出需要评估的任务
+                  const jobsToEval = matrixJobs.filter(j => !j.evalSavedJsonPath && !j.evalSummary && j.downloadUrl);
+                  // 并行评估，限制并发数为 2
+                  const EVAL_CONCURRENCY = 2;
+                  const evaluateJob = async (job: typeof matrixJobs[0]) => {
                     try {
-                      if (job.evalSavedJsonPath || job.evalSummary) continue;
-                      if (!job.downloadUrl) continue;
-                      // fetch exported file
-                      const resp = await fetch(job.downloadUrl);
-                      if (!resp.ok) continue;
+                      const resp = await fetch(job.downloadUrl!);
+                      if (!resp.ok) return;
                       const blob = await resp.blob();
                       const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
                       const expSec = job.exportDurationMs ? (job.exportDurationMs / 1000) : (inputDuration || 30);
@@ -818,6 +827,11 @@ export default function Automation() {
                       };
                       updateMatrixJob(job.id, { evalSavedJsonPath: saveJson?.url || null, evalSummary: summary });
                     } catch (_) {}
+                  };
+                  // 分批并行执行
+                  for (let i = 0; i < jobsToEval.length; i += EVAL_CONCURRENCY) {
+                    const batch = jobsToEval.slice(i, i + EVAL_CONCURRENCY);
+                    await Promise.all(batch.map(evaluateJob));
                   }
                   message.success('批量评估完成');
                 } catch (e) {
