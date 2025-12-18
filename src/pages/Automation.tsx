@@ -724,7 +724,8 @@ export default function Automation() {
                   }
                   }
                   addMatrixJobs(jobs0);
-                  const exportedList: { id: string; url: string; durMs: number | null; name: string }[] = [];
+                  // 保存 blob 以便评估时复用，避免重复下载
+                  const exportedList: { id: string; url: string; durMs: number | null; name: string; blob: Blob }[] = [];
                   let processed0 = 0;
                   for (const job of jobs0) {
                     try {
@@ -746,13 +747,17 @@ export default function Automation() {
                           }
                         }
                         updateMatrixJob(job.id, { savedPath: saved2 });
+                        // 下载一次 blob，用于预览和后续评估
+                        let blob2: Blob | null = null;
                         try {
                           const f2 = await fetch(full2);
-                          const blob2 = await f2.blob();
+                          blob2 = await f2.blob();
                           const obj2 = URL.createObjectURL(blob2);
                           updateMatrixJob(job.id, { previewUrl: obj2 });
                         } catch (_) {}
-                        exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename });
+                        if (blob2) {
+                          exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename, blob: blob2 });
+                        }
                         processed0++;
                       }
                     } catch (_) {}
@@ -760,10 +765,8 @@ export default function Automation() {
                   if (processed0 === 0) { message.error('未处理任何导出任务'); setMatrixAllRunning(false); return; }
                   for (const ex of exportedList) {
                     try {
-                      const f3 = await fetch(ex.url);
-                      if (!f3.ok) continue;
-                      const blob3 = await f3.blob();
-                      const afterFile3 = new File([blob3], ex.name, { type: blob3.type || 'video/mp4' });
+                      // 复用已下载的 blob，无需重复 fetch
+                      const afterFile3 = new File([ex.blob], ex.name, { type: ex.blob.type || 'video/mp4' });
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
                       const benchSecVal = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSecVal;
                       const tgtRTF = (inputDuration || 30) / Math.max(benchSecVal, 1e-6);
