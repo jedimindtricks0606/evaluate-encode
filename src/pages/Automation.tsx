@@ -744,7 +744,9 @@ export default function Automation() {
                       const blob3 = await f3.blob();
                       const afterFile3 = new File([blob3], ex.name, { type: blob3.type || 'video/mp4' });
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
-                      const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const benchSecVal = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSecVal;
+                      const tgtRTF = (inputDuration || 30) / Math.max(benchSecVal, 1e-6);
+                      const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, targetRTF: tgtRTF, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
                       const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '', filename: `${ex.name.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary3 = {
                         overall: Number(evalResp3?.final_score ?? 0),
@@ -779,7 +781,9 @@ export default function Automation() {
                       const blob = await resp.blob();
                       const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
                       const expSec = job.exportDurationMs ? (job.exportDurationMs / 1000) : (inputDuration || 30);
-                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const benchSec = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSec;
+                      const tgtRTF2 = (inputDuration || 30) / Math.max(benchSec, 1e-6);
+                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, targetRTF: tgtRTF2, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
                       const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary = {
                         overall: Number(evalResp?.final_score ?? 0),
