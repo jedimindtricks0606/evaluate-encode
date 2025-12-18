@@ -38,9 +38,9 @@ export default function Automation() {
   const [singleExportDurationMs, setSingleExportDurationMs] = useState<number | null>(null);
   const [matrixEncoder, setMatrixEncoder] = useState<'x264' | 'x265' | 'nvenc'>('nvenc');
   const [matrixPresets, setMatrixPresets] = useState<string>('p7,p6');
-  const [matrixBitrates, setMatrixBitrates] = useState<string>('8M,10M');
-  const [matrixMaxrates, setMatrixMaxrates] = useState<string>('10M');
-  const [matrixBufsizes, setMatrixBufsizes] = useState<string>('12M');
+  const [matrixBitrates, setMatrixBitrates] = useState<string>('0');
+  const [matrixMaxrates, setMatrixMaxrates] = useState<string>('');
+  const [matrixBufsizes, setMatrixBufsizes] = useState<string>('');
   const [matrixRcMode, setMatrixRcMode] = useState<string>('vbr');
   const [matrixCqValues, setMatrixCqValues] = useState<string>('23');
   const [matrixQpValues, setMatrixQpValues] = useState<string>('');
@@ -51,6 +51,7 @@ export default function Automation() {
   const [nvencTune, setNvencTune] = useState<string>('');
   const [nvencRcLookahead, setNvencRcLookahead] = useState<string>('');
   const [nvencMinrate, setNvencMinrate] = useState<string>('');
+  const [nvencMultipass, setNvencMultipass] = useState<'fullres' | 'qres' | ''>('');
   const [matrixSubmitting, setMatrixSubmitting] = useState(false);
   const [batchEvaluating, setBatchEvaluating] = useState(false);
   const [matrixAllRunning, setMatrixAllRunning] = useState(false);
@@ -390,8 +391,18 @@ export default function Automation() {
               )}
               {matrixEncoder === 'nvenc' && (
               <Col span={6}>
-                <Text className="block mb-1">rc-lookahead</Text>
-                <input type="number" min={0} step={1} value={nvencRcLookahead} onChange={(e) => setNvencRcLookahead(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="20" />
+                <Text className="block mb-1">rc-lookahead（逗号分隔）</Text>
+                <input type="text" value={nvencRcLookahead} onChange={(e) => setNvencRcLookahead(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="0,10,20" />
+              </Col>
+              )}
+              {matrixEncoder === 'nvenc' && (
+              <Col span={6}>
+                <Text className="block mb-1">multipass</Text>
+                <select value={nvencMultipass} onChange={(e) => setNvencMultipass(e.target.value as any)} className="border rounded px-2 py-1 w-full">
+                  <option value="">关闭</option>
+                  <option value="fullres">fullres</option>
+                  <option value="qres">qres</option>
+                </select>
               </Col>
               )}
             </Row>
@@ -402,7 +413,7 @@ export default function Automation() {
               </Col>
               <Col span={6}>
                 <Text className="block mb-1">maxrate</Text>
-                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="10M" />
+                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className="border rounded px-2 py-1 w-full text-gray-400" placeholder="12M" />
               </Col>
               {matrixEncoder === 'nvenc' && (
               <Col span={6}>
@@ -412,7 +423,7 @@ export default function Automation() {
               )}
               <Col span={6}>
                 <Text className="block mb-1">bufsize（逗号分隔）</Text>
-                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="12M" />
+                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className="border rounded px-2 py-1 w-full text-gray-400" placeholder="12M" />
               </Col>
             </Row>
             <Row gutter={16}>
@@ -465,6 +476,7 @@ export default function Automation() {
                   const bufsizes = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
                   const cqs = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
                   const qps = matrixQpValues.split(',').map(s => s.trim()).filter(Boolean);
+                  const lookaheads = String(nvencRcLookahead || '').split(',').map(s => s.trim()).filter(Boolean);
                   const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                   const jobs = [] as any[];
                   const now = Date.now();
@@ -474,6 +486,7 @@ export default function Automation() {
                         for (const bs of (bufsizes.length ? bufsizes : [''])) {
                           for (const cq of (cqs.length ? cqs : [''])) {
                             for (const qp of (qps.length ? qps : [''])) {
+                              for (const la of (lookaheads.length ? lookaheads : [''])) {
                             const encTag = matrixEncoder === 'nvenc' ? (nvencCodec === 'hevc' ? 'nvhevc' : 'nvh264') : matrixEncoder;
                             const nameParts: string[] = ['auto', encTag];
                             if (preset) nameParts.push(`pre-${preset}`);
@@ -487,7 +500,8 @@ export default function Automation() {
                               if (qp) nameParts.push(`qp-${qp}`);
                             }
                             if (nvencTune) nameParts.push(`t-${nvencTune}`);
-                            if (nvencRcLookahead) nameParts.push(`la-${nvencRcLookahead}`);
+                            if (nvencMultipass) nameParts.push(`mp-${nvencMultipass}`);
+                            if (la && la !== '0') nameParts.push(`la-${la}`);
                             if (nvencMinrate) nameParts.push(`min-${nvencMinrate}`);
                             if (matrixTemporalAQ) nameParts.push('ta-1');
                             if (matrixSpatialAQ) nameParts.push('sa-1');
@@ -502,13 +516,13 @@ export default function Automation() {
                               const paramsList: string[] = [];
                               paramsList.push(`-c:v ${codec}`);
                               if (preset) paramsList.push(`-preset ${preset}`);
-                              if (matrixRcMode !== 'constqp') {
-                                if (matrixRcMode) paramsList.push(`-rc:v ${matrixRcMode}`);
-                                if (b) paramsList.push(`-b:v ${b}`);
-                                if (mr) paramsList.push(`-maxrate ${mr}`);
-                                if (bs) paramsList.push(`-bufsize ${bs}`);
-                                if (cq) paramsList.push(`-cq:v ${cq}`);
-                              } else {
+                            if (matrixRcMode !== 'constqp') {
+                              if (matrixRcMode) paramsList.push(`-rc:v ${matrixRcMode}`);
+                              if (b) paramsList.push(`-b:v ${b}`);
+                              if (mr) paramsList.push(`-maxrate ${mr}`);
+                              if (bs) paramsList.push(`-bufsize ${bs}`);
+                              if (cq) paramsList.push(`-cq:v ${cq}`);
+                            } else {
                                 paramsList.push(`-rc constqp`);
                                 if (qp) paramsList.push(`-qp ${qp}`);
                               }
@@ -531,17 +545,19 @@ export default function Automation() {
                               paramsList.push(`-c:a copy`);
                               if (matrixEncoder === 'nvenc') {
                                 if (nvencTune) paramsList.push(`-tune ${nvencTune}`);
-                                if (nvencRcLookahead) paramsList.push(`-rc-lookahead ${nvencRcLookahead}`);
+                                if (nvencMultipass) paramsList.push(`-multipass ${nvencMultipass}`);
+                                if (la && la !== '0') paramsList.push(`-rc-lookahead ${la}`);
                                 if (nvencMinrate) paramsList.push(`-minrate ${nvencMinrate}`);
                               }
                               const params = paramsList.join(' ');
                               const command = `ffmpeg -y -i {input} ${params} {output}`;
-                              jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
+                              jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
                           }
                         }
                       }
                     }
+                  }
                   }
                   addMatrixJobs(jobs);
                   // submit sequentially with save retry (process with existing job)
@@ -624,6 +640,7 @@ export default function Automation() {
                   const bufsizes0 = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
                   const cqs0 = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
                   const qps0 = matrixQpValues.split(',').map(s => s.trim()).filter(Boolean);
+                  const lookaheads0 = String(nvencRcLookahead || '').split(',').map(s => s.trim()).filter(Boolean);
                   const codec1 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                   const jobs0 = [] as any[];
                   const now0 = Date.now();
@@ -633,6 +650,7 @@ export default function Automation() {
                         for (const bs of (bufsizes0.length ? bufsizes0 : [''])) {
                           for (const cq of (cqs0.length ? cqs0 : [''])) {
                             for (const qp of (qps0.length ? qps0 : [''])) {
+                              for (const la of (lookaheads0.length ? lookaheads0 : [''])) {
                             const encTag2 = matrixEncoder === 'nvenc' ? (nvencCodec === 'hevc' ? 'nvhevc' : 'nvh264') : matrixEncoder;
                             const nameParts2: string[] = ['auto', encTag2];
                             if (preset) nameParts2.push(`pre-${preset}`);
@@ -646,7 +664,8 @@ export default function Automation() {
                               if (qp) nameParts2.push(`qp-${qp}`);
                             }
                             if (nvencTune) nameParts2.push(`t-${nvencTune}`);
-                            if (nvencRcLookahead) nameParts2.push(`la-${nvencRcLookahead}`);
+                            if (nvencMultipass) nameParts2.push(`mp-${nvencMultipass}`);
+                            if (la && la !== '0') nameParts2.push(`la-${la}`);
                             if (nvencMinrate) nameParts2.push(`min-${nvencMinrate}`);
                             if (matrixTemporalAQ) nameParts2.push('ta-1');
                             if (matrixSpatialAQ) nameParts2.push('sa-1');
@@ -661,13 +680,13 @@ export default function Automation() {
                               const paramsList2: string[] = [];
                               paramsList2.push(`-c:v ${codec1}`);
                               if (preset) paramsList2.push(`-preset ${preset}`);
-                              if (matrixRcMode !== 'constqp') {
-                                if (matrixRcMode) paramsList2.push(`-rc:v ${matrixRcMode}`);
-                                if (b) paramsList2.push(`-b:v ${b}`);
-                                if (mr) paramsList2.push(`-maxrate ${mr}`);
-                                if (bs) paramsList2.push(`-bufsize ${bs}`);
-                                if (cq) paramsList2.push(`-cq:v ${cq}`);
-                              } else {
+                            if (matrixRcMode !== 'constqp') {
+                              if (matrixRcMode) paramsList2.push(`-rc:v ${matrixRcMode}`);
+                              if (b) paramsList2.push(`-b:v ${b}`);
+                              if (mr) paramsList2.push(`-maxrate ${mr}`);
+                              if (bs) paramsList2.push(`-bufsize ${bs}`);
+                              if (cq) paramsList2.push(`-cq:v ${cq}`);
+                            } else {
                                 paramsList2.push(`-rc constqp`);
                                 if (qp) paramsList2.push(`-qp ${qp}`);
                               }
@@ -690,17 +709,19 @@ export default function Automation() {
                               paramsList2.push(`-c:a copy`);
                               if (matrixEncoder === 'nvenc') {
                                 if (nvencTune) paramsList2.push(`-tune ${nvencTune}`);
-                                if (nvencRcLookahead) paramsList2.push(`-rc-lookahead ${nvencRcLookahead}`);
+                                if (nvencMultipass) paramsList2.push(`-multipass ${nvencMultipass}`);
+                                if (la && la !== '0') paramsList2.push(`-rc-lookahead ${la}`);
                                 if (nvencMinrate) paramsList2.push(`-minrate ${nvencMinrate}`);
                               }
                               const params = paramsList2.join(' ');
                               const command = `ffmpeg -y -i {input} ${params} {output}`;
-                              jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
+                              jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
                           }
                         }
-                      }
                     }
+                  }
+                  }
                   }
                   addMatrixJobs(jobs0);
                   const exportedList: { id: string; url: string; durMs: number | null; name: string }[] = [];
@@ -814,7 +835,7 @@ export default function Automation() {
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={async () => {
               try {
                   const header = [
-                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
+                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
                   ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
@@ -832,6 +853,7 @@ export default function Automation() {
                     String(p.profile ?? ''),
                     String(p.nvenc_codec ?? ''),
                     String(p.tune ?? ''),
+                    String(p.multipass ?? ''),
                     String(p.rc_lookahead ?? ''),
                     String(p.minrate ?? ''),
                     j.outputFilename,
