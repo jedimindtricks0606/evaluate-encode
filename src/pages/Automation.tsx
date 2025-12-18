@@ -43,6 +43,7 @@ export default function Automation() {
   const [matrixBufsizes, setMatrixBufsizes] = useState<string>('12M');
   const [matrixRcMode, setMatrixRcMode] = useState<string>('vbr');
   const [matrixCqValues, setMatrixCqValues] = useState<string>('23');
+  const [matrixQpValues, setMatrixQpValues] = useState<string>('');
   const [matrixTemporalAQ, setMatrixTemporalAQ] = useState<boolean>(true);
   const [matrixSpatialAQ, setMatrixSpatialAQ] = useState<boolean>(true);
   const [matrixProfile, setMatrixProfile] = useState<string>('high');
@@ -375,6 +376,12 @@ export default function Automation() {
                 <Text className="block mb-1">cq（逗号分隔）</Text>
                 <input type="text" value={matrixCqValues} onChange={(e) => setMatrixCqValues(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="23,28" />
               </Col>
+              {matrixRcMode === 'constqp' && (
+              <Col span={6}>
+                <Text className="block mb-1">qp（逗号分隔）</Text>
+                <input type="text" value={matrixQpValues} onChange={(e) => setMatrixQpValues(e.target.value)} className="border rounded px-2 py-1 w-full" placeholder="22,28" />
+              </Col>
+              )}
               {matrixEncoder === 'nvenc' && (
               <Col span={6}>
                 <Text className="block mb-1">tune</Text>
@@ -457,6 +464,7 @@ export default function Automation() {
                   const maxrates = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
                   const bufsizes = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
                   const cqs = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
+                  const qps = matrixQpValues.split(',').map(s => s.trim()).filter(Boolean);
                   const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                   const jobs = [] as any[];
                   const now = Date.now();
@@ -465,20 +473,50 @@ export default function Automation() {
                       for (const mr of (maxrates.length ? maxrates : [''])) {
                         for (const bs of (bufsizes.length ? bufsizes : [''])) {
                           for (const cq of (cqs.length ? cqs : [''])) {
-                            const outfile = `auto_${matrixEncoder}_${preset}_${b}_${cq}_${now}.mp4`;
-                            const paramsList: string[] = [];
-                            paramsList.push(`-c:v ${codec}`);
-                            if (preset) paramsList.push(`-preset ${preset}`);
-                            if (b) paramsList.push(`-b:v ${b}`);
-                            if (mr) paramsList.push(`-maxrate ${mr}`);
-                            if (bs) paramsList.push(`-bufsize ${bs}`);
-                            if (matrixRcMode) paramsList.push(`-rc:v ${matrixRcMode}`);
-                            if (cq) paramsList.push(`-cq:v ${cq}`);
-                            if (matrixTemporalAQ) paramsList.push(`-temporal-aq 1`);
-                            if (matrixSpatialAQ) paramsList.push(`-spatial-aq 1`);
-                            {
-                              let profileArg: string | null = null;
-                              if (matrixProfile) {
+                            for (const qp of (qps.length ? qps : [''])) {
+                            const encTag = matrixEncoder === 'nvenc' ? (nvencCodec === 'hevc' ? 'nvhevc' : 'nvh264') : matrixEncoder;
+                            const nameParts: string[] = ['auto', encTag];
+                            if (preset) nameParts.push(`pre-${preset}`);
+                            nameParts.push(`rc-${matrixRcMode}`);
+                            if (matrixRcMode !== 'constqp') {
+                              if (b) nameParts.push(`b-${b}`);
+                              if (mr) nameParts.push(`max-${mr}`);
+                              if (bs) nameParts.push(`buf-${bs}`);
+                              if (cq) nameParts.push(`cq-${cq}`);
+                            } else {
+                              if (qp) nameParts.push(`qp-${qp}`);
+                            }
+                            if (nvencTune) nameParts.push(`t-${nvencTune}`);
+                            if (nvencRcLookahead) nameParts.push(`la-${nvencRcLookahead}`);
+                            if (nvencMinrate) nameParts.push(`min-${nvencMinrate}`);
+                            if (matrixTemporalAQ) nameParts.push('ta-1');
+                            if (matrixSpatialAQ) nameParts.push('sa-1');
+                            let profTag = matrixProfile;
+                            if (matrixEncoder === 'nvenc' && nvencCodec === 'hevc') {
+                              const p = String(matrixProfile).toLowerCase();
+                              if (p === 'high') profTag = 'main';
+                              else if (!['main','main10','rext'].includes(p)) profTag = 'main';
+                            }
+                            if (profTag) nameParts.push(`pr-${profTag}`);
+                            const outfile = `${nameParts.join('_')}_${now}.mp4`;
+                              const paramsList: string[] = [];
+                              paramsList.push(`-c:v ${codec}`);
+                              if (preset) paramsList.push(`-preset ${preset}`);
+                              if (matrixRcMode !== 'constqp') {
+                                if (matrixRcMode) paramsList.push(`-rc:v ${matrixRcMode}`);
+                                if (b) paramsList.push(`-b:v ${b}`);
+                                if (mr) paramsList.push(`-maxrate ${mr}`);
+                                if (bs) paramsList.push(`-bufsize ${bs}`);
+                                if (cq) paramsList.push(`-cq:v ${cq}`);
+                              } else {
+                                paramsList.push(`-rc constqp`);
+                                if (qp) paramsList.push(`-qp ${qp}`);
+                              }
+                              if (matrixTemporalAQ) paramsList.push(`-temporal-aq 1`);
+                              if (matrixSpatialAQ) paramsList.push(`-spatial-aq 1`);
+                              {
+                                let profileArg: string | null = null;
+                                if (matrixProfile) {
                                 if (matrixEncoder === 'nvenc' && nvencCodec === 'hevc') {
                                   const p = String(matrixProfile).toLowerCase();
                                   if (p === 'high') profileArg = 'main';
@@ -489,16 +527,17 @@ export default function Automation() {
                                 }
                               }
                               if (profileArg) paramsList.push(`-profile:v ${profileArg}`);
+                              }
+                              paramsList.push(`-c:a copy`);
+                              if (matrixEncoder === 'nvenc') {
+                                if (nvencTune) paramsList.push(`-tune ${nvencTune}`);
+                                if (nvencRcLookahead) paramsList.push(`-rc-lookahead ${nvencRcLookahead}`);
+                                if (nvencMinrate) paramsList.push(`-minrate ${nvencMinrate}`);
+                              }
+                              const params = paramsList.join(' ');
+                              const command = `ffmpeg -y -i {input} ${params} {output}`;
+                              jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
-                            paramsList.push(`-c:a copy`);
-                            if (matrixEncoder === 'nvenc') {
-                              if (nvencTune) paramsList.push(`-tune ${nvencTune}`);
-                              if (nvencRcLookahead) paramsList.push(`-rc-lookahead ${nvencRcLookahead}`);
-                              if (nvencMinrate) paramsList.push(`-minrate ${nvencMinrate}`);
-                            }
-                            const params = paramsList.join(' ');
-                            const command = `ffmpeg -y -i {input} ${params} {output}`;
-                            jobs.push({ id: `${now}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
                           }
                         }
                       }
@@ -584,6 +623,7 @@ export default function Automation() {
                   const maxrates0 = matrixMaxrates.split(',').map(s => s.trim()).filter(Boolean);
                   const bufsizes0 = matrixBufsizes.split(',').map(s => s.trim()).filter(Boolean);
                   const cqs0 = matrixCqValues.split(',').map(s => s.trim()).filter(Boolean);
+                  const qps0 = matrixQpValues.split(',').map(s => s.trim()).filter(Boolean);
                   const codec1 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                   const jobs0 = [] as any[];
                   const now0 = Date.now();
@@ -592,20 +632,50 @@ export default function Automation() {
                       for (const mr of (maxrates0.length ? maxrates0 : [''])) {
                         for (const bs of (bufsizes0.length ? bufsizes0 : [''])) {
                           for (const cq of (cqs0.length ? cqs0 : [''])) {
-                            const outfile = `auto_${matrixEncoder}_${preset}_${b}_${cq}_${now0}.mp4`;
-                            const paramsList2: string[] = [];
-                            paramsList2.push(`-c:v ${codec1}`);
-                            if (preset) paramsList2.push(`-preset ${preset}`);
-                            if (b) paramsList2.push(`-b:v ${b}`);
-                            if (mr) paramsList2.push(`-maxrate ${mr}`);
-                            if (bs) paramsList2.push(`-bufsize ${bs}`);
-                            if (matrixRcMode) paramsList2.push(`-rc:v ${matrixRcMode}`);
-                            if (cq) paramsList2.push(`-cq:v ${cq}`);
-                            if (matrixTemporalAQ) paramsList2.push(`-temporal-aq 1`);
-                            if (matrixSpatialAQ) paramsList2.push(`-spatial-aq 1`);
-                            {
-                              let profileArg2: string | null = null;
-                              if (matrixProfile) {
+                            for (const qp of (qps0.length ? qps0 : [''])) {
+                            const encTag2 = matrixEncoder === 'nvenc' ? (nvencCodec === 'hevc' ? 'nvhevc' : 'nvh264') : matrixEncoder;
+                            const nameParts2: string[] = ['auto', encTag2];
+                            if (preset) nameParts2.push(`pre-${preset}`);
+                            nameParts2.push(`rc-${matrixRcMode}`);
+                            if (matrixRcMode !== 'constqp') {
+                              if (b) nameParts2.push(`b-${b}`);
+                              if (mr) nameParts2.push(`max-${mr}`);
+                              if (bs) nameParts2.push(`buf-${bs}`);
+                              if (cq) nameParts2.push(`cq-${cq}`);
+                            } else {
+                              if (qp) nameParts2.push(`qp-${qp}`);
+                            }
+                            if (nvencTune) nameParts2.push(`t-${nvencTune}`);
+                            if (nvencRcLookahead) nameParts2.push(`la-${nvencRcLookahead}`);
+                            if (nvencMinrate) nameParts2.push(`min-${nvencMinrate}`);
+                            if (matrixTemporalAQ) nameParts2.push('ta-1');
+                            if (matrixSpatialAQ) nameParts2.push('sa-1');
+                            let profTag2 = matrixProfile;
+                            if (matrixEncoder === 'nvenc' && nvencCodec === 'hevc') {
+                              const p2 = String(matrixProfile).toLowerCase();
+                              if (p2 === 'high') profTag2 = 'main';
+                              else if (!['main','main10','rext'].includes(p2)) profTag2 = 'main';
+                            }
+                            if (profTag2) nameParts2.push(`pr-${profTag2}`);
+                            const outfile = `${nameParts2.join('_')}_${now0}.mp4`;
+                              const paramsList2: string[] = [];
+                              paramsList2.push(`-c:v ${codec1}`);
+                              if (preset) paramsList2.push(`-preset ${preset}`);
+                              if (matrixRcMode !== 'constqp') {
+                                if (matrixRcMode) paramsList2.push(`-rc:v ${matrixRcMode}`);
+                                if (b) paramsList2.push(`-b:v ${b}`);
+                                if (mr) paramsList2.push(`-maxrate ${mr}`);
+                                if (bs) paramsList2.push(`-bufsize ${bs}`);
+                                if (cq) paramsList2.push(`-cq:v ${cq}`);
+                              } else {
+                                paramsList2.push(`-rc constqp`);
+                                if (qp) paramsList2.push(`-qp ${qp}`);
+                              }
+                              if (matrixTemporalAQ) paramsList2.push(`-temporal-aq 1`);
+                              if (matrixSpatialAQ) paramsList2.push(`-spatial-aq 1`);
+                              {
+                                let profileArg2: string | null = null;
+                                if (matrixProfile) {
                                 if (matrixEncoder === 'nvenc' && nvencCodec === 'hevc') {
                                   const p = String(matrixProfile).toLowerCase();
                                   if (p === 'high') profileArg2 = 'main';
@@ -616,16 +686,17 @@ export default function Automation() {
                                 }
                               }
                               if (profileArg2) paramsList2.push(`-profile:v ${profileArg2}`);
+                              }
+                              paramsList2.push(`-c:a copy`);
+                              if (matrixEncoder === 'nvenc') {
+                                if (nvencTune) paramsList2.push(`-tune ${nvencTune}`);
+                                if (nvencRcLookahead) paramsList2.push(`-rc-lookahead ${nvencRcLookahead}`);
+                                if (nvencMinrate) paramsList2.push(`-minrate ${nvencMinrate}`);
+                              }
+                              const params = paramsList2.join(' ');
+                              const command = `ffmpeg -y -i {input} ${params} {output}`;
+                              jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
-                            paramsList2.push(`-c:a copy`);
-                            if (matrixEncoder === 'nvenc') {
-                              if (nvencTune) paramsList2.push(`-tune ${nvencTune}`);
-                              if (nvencRcLookahead) paramsList2.push(`-rc-lookahead ${nvencRcLookahead}`);
-                              if (nvencMinrate) paramsList2.push(`-minrate ${nvencMinrate}`);
-                            }
-                            const params = paramsList2.join(' ');
-                            const command = `ffmpeg -y -i {input} ${params} {output}`;
-                            jobs0.push({ id: `${now0}-${preset}-${b}-${cq}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, rc_lookahead: nvencRcLookahead, minrate: nvencMinrate }, command, outputFilename: outfile });
                           }
                         }
                       }
@@ -700,6 +771,7 @@ export default function Automation() {
                   setBatchEvaluating(true);
                   for (const job of matrixJobs) {
                     try {
+                      if (job.evalSavedJsonPath || job.evalSummary) continue;
                       if (!job.downloadUrl) continue;
                       // fetch exported file
                       const resp = await fetch(job.downloadUrl);
@@ -738,7 +810,7 @@ export default function Automation() {
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={async () => {
               try {
                   const header = [
-                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','temporal_aq','spatial_aq','profile','nvenc_codec','tune','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
+                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
                   ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
@@ -750,6 +822,7 @@ export default function Automation() {
                     String(p.bs ?? ''),
                     String(p.rc ?? 'vbr'),
                     String(p.cq ?? ''),
+                    String(p.qp ?? ''),
                     String((p.temporal_aq ?? 1)),
                     String((p.spatial_aq ?? 1)),
                     String(p.profile ?? ''),
