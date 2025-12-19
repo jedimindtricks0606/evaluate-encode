@@ -849,8 +849,9 @@ export default function Automation() {
                     const csv = [header.join(','), ...rows].join('\n');
                     const csvFilename = `matrix_evaluation_${Date.now()}.csv`;
                     const saveResp = await (await import('@/lib/api')).automationSaveCsv({ csvText: csv, localSaveDir: '', filename: csvFilename });
-                    // 使用与视频下载相同的 URL 拼接逻辑
-                    const csvServerUrl = saveResp?.url ? (serverIp === '0' ? `http://localhost:3000${saveResp.url}` : `http://${serverIp}:${serverPort}${saveResp.url}`) : null;
+                    // CSV 保存在本地后台服务器（端口3000），使用当前页面的 origin 作为基础地址
+                    const backendOrigin = window.location.origin.replace(/:\d+$/, ':3000');
+                    const csvServerUrl = saveResp?.url ? `${backendOrigin}${saveResp.url}` : null;
                     const jobCount = evaledJobs.length;
                     const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
                     const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
@@ -960,7 +961,9 @@ export default function Automation() {
                     const csv = [header.join(','), ...rows].join('\n');
                     const csvFilename = `matrix_evaluation_${Date.now()}.csv`;
                     const saveResp = await (await import('@/lib/api')).automationSaveCsv({ csvText: csv, localSaveDir: '', filename: csvFilename });
-                    const csvServerUrl = saveResp?.url ? (serverIp === '0' ? `http://localhost:3000${saveResp.url}` : `http://${serverIp}:${serverPort}${saveResp.url}`) : null;
+                    // CSV 保存在本地后台服务器（端口3000），使用当前页面的 origin 作为基础地址
+                    const backendOrigin = window.location.origin.replace(/:\d+$/, ':3000');
+                    const csvServerUrl = saveResp?.url ? `${backendOrigin}${saveResp.url}` : null;
                     const jobCount = evaledJobs.length;
                     const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
                     const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
