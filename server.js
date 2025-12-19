@@ -275,11 +275,44 @@ function normalizeQuality(vmaf, psnr) {
   return 0;
 }
 
-function computeBitrateScore(targetBps, afterBps) {
-  if (!afterBps || afterBps <= 0) return 0;
-  if (!targetBps || targetBps <= 0) return 0;
-  const ratio = targetBps / afterBps;
-  return clamp01(ratio);
+/**
+ * 码率合理性评估函数（三段式）
+ *
+ * R = actualBps / baseBps (实际码率 / 基准码率)
+ *
+ * 区间定义:
+ * 1. R <= 0.25: 极致压缩，满分 1.0
+ * 2. 0.25 < R <= 1.5: 线性区间，分数从 1.0 降至 0.6
+ * 3. R > 1.5: 指数惩罚区间，从 0.6 开始快速衰减
+ *
+ * @param baseBps - 基准码率 (bps)
+ * @param actualBps - 实际码率 (bps)
+ */
+function computeBitrateScore(baseBps, actualBps) {
+  if (!baseBps || baseBps <= 0) return 0;
+  if (!actualBps || actualBps <= 0) return 0;
+
+  const r = actualBps / baseBps;
+
+  // 配置参数
+  const pivotR = 1.5;       // 转折点
+  const pivotScore = 0.6;   // 转折点得分
+  const alpha = 3.0;        // 惩罚强度
+  const beta = 2.0;         // 平滑度
+
+  if (r <= 0.25) {
+    // 极致压缩，满分
+    return 1.0;
+  } else if (r <= pivotR) {
+    // 线性映射: 将 [0.25, 1.5] 映射到 [1.0, 0.6]
+    const k = -0.4 / 1.25;  // 斜率 = (0.6 - 1.0) / (1.5 - 0.25)
+    const score = 1.0 + (r - 0.25) * k;
+    return Number(score.toFixed(4));
+  } else {
+    // 指数惩罚: 以 pivotScore 为基数衰减
+    const score = pivotScore * Math.exp(-alpha * Math.pow(r - pivotR, beta));
+    return Number(score.toFixed(4));
+  }
 }
 
 function computeSpeedScore(durationSec, exportTimeSec, targetRTF = 1.0) {
@@ -327,6 +360,11 @@ app.post('/evaluate', upload.fields([
     let fpsAfter = getFps(metaAfter);
     if (fpsBefore == null) fpsBefore = ffprobeFps(beforePath);
     if (fpsAfter == null) fpsAfter = ffprobeFps(afterPath);
+    // 获取视频编码格式
+    const vStreamBefore = (metaBefore?.streams || []).find(s => s.codec_type === 'video');
+    const vStreamAfter = (metaAfter?.streams || []).find(s => s.codec_type === 'video');
+    const codecBefore = vStreamBefore?.codec_name || null;
+    const codecAfter = vStreamAfter?.codec_name || null;
 
     let psnr = null, vmaf = null, ssim = null;
     if (mode !== 'bitrate') {
@@ -377,6 +415,8 @@ app.post('/evaluate', upload.fields([
           ssim: ssim,
           fps_before: fpsBefore,
           fps_after: fpsAfter,
+          codec_before: codecBefore,
+          codec_after: codecAfter,
           speed_export_seconds: exportTimeSeconds,
           target_rtf: targetRTF
         },

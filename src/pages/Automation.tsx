@@ -583,13 +583,18 @@ export default function Automation() {
                           }
                         }
                         updateMatrixJob(job.id, { savedPath: saved });
-                        // preview URL
+                        // preview URL with timeout
                         try {
-                          const f = await fetch(full);
+                          const controller = new AbortController();
+                          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+                          const f = await fetch(full, { signal: controller.signal });
+                          clearTimeout(timeoutId);
                           const blob = await f.blob();
                           const obj = URL.createObjectURL(blob);
                           updateMatrixJob(job.id, { previewUrl: obj });
-                        } catch (_) {}
+                        } catch (err) {
+                          console.warn('[matrix-export] preview fetch failed for', job.id, err);
+                        }
                         processed++;
                       }
                     } catch (e) {
@@ -749,14 +754,19 @@ export default function Automation() {
                           }
                         }
                         updateMatrixJob(job.id, { savedPath: saved2 });
-                        // 下载一次 blob，用于预览和后续评估
+                        // 下载一次 blob，用于预览和后续评估（带超时）
                         let blob2: Blob | null = null;
                         try {
-                          const f2 = await fetch(full2);
+                          const controller2 = new AbortController();
+                          const timeoutId2 = setTimeout(() => controller2.abort(), 60000); // 60秒超时
+                          const f2 = await fetch(full2, { signal: controller2.signal });
+                          clearTimeout(timeoutId2);
                           blob2 = await f2.blob();
                           const obj2 = URL.createObjectURL(blob2);
                           updateMatrixJob(job.id, { previewUrl: obj2 });
-                        } catch (_) {}
+                        } catch (err2) {
+                          console.warn('[matrix-eval] preview fetch failed for', job.id, err2);
+                        }
                         if (blob2) {
                           exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename, blob: blob2 });
                         }
@@ -809,7 +819,11 @@ export default function Automation() {
                   const EVAL_CONCURRENCY = 2;
                   const evaluateJob = async (job: typeof matrixJobs[0]) => {
                     try {
-                      const resp = await fetch(job.downloadUrl!);
+                      // 带超时的 fetch
+                      const controller = new AbortController();
+                      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+                      const resp = await fetch(job.downloadUrl!, { signal: controller.signal });
+                      clearTimeout(timeoutId);
                       if (!resp.ok) return;
                       const blob = await resp.blob();
                       const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
@@ -826,7 +840,9 @@ export default function Automation() {
                         bitrate_after_kbps: (evalResp?.metrics?.bitrate_after_bps ?? 0) / 1000,
                       };
                       updateMatrixJob(job.id, { evalSavedJsonPath: saveJson?.url || null, evalSummary: summary });
-                    } catch (_) {}
+                    } catch (err) {
+                      console.warn('[batch-eval] evaluateJob failed for', job.id, err);
+                    }
                   };
                   // 分批并行执行
                   for (let i = 0; i < jobsToEval.length; i += EVAL_CONCURRENCY) {
@@ -948,6 +964,12 @@ export default function Automation() {
                           navigate('/', { state });
                         }}>质量评估</Button>
                       </div>
+                      {job.command && (
+                        <div className="p-2 bg-blue-50 rounded text-xs">
+                          <Text type="secondary" className="block mb-1">FFmpeg 命令</Text>
+                          <code className="break-all text-blue-700">{job.command}</code>
+                        </div>
+                      )}
                       {job.evalSummary && (
                         <table className="w-full text-sm">
                           <tbody>

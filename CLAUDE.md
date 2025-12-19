@@ -79,9 +79,22 @@ npm run build
 ### 评估算法
 
 综合分数 = quality × w_quality + speed × w_speed + bitrate × w_bitrate
-- quality: 0.7 × (vmaf/100) + 0.3 × ((psnr-20)/30)
-- speed: (视频时长/导出时间) / targetRTF
-- bitrate: targetBitrate / actualBitrate
+
+**画质分数 (quality)**：0~1
+- 公式: 0.7 × (vmaf/100) + 0.3 × ((psnr-20)/30)
+- VMAF: 0~100 归一化到 0~1
+- PSNR: 20~50dB 归一化到 0~1
+
+**速度分数 (speed)**：0~1
+- 公式: clamp01((视频时长/导出时间) / targetRTF)
+- RTF > targetRTF 时得高分
+
+**码率分数 (bitrate)**：0~1（三段式）
+- R = actualBps / targetBps（实际码率 / 目标码率）
+- R ≤ 0.25：满分 1.0（极致压缩）
+- 0.25 < R ≤ 1.5：线性区间，从 1.0 降至 0.6
+- R > 1.5：指数惩罚，0.6 × exp(-3 × (R - 1.5)²)
+- 目标码率根据分辨率、帧率、编码格式自动计算（HEVC 比 H.264 低 40%）
 
 ## Key Dependencies
 

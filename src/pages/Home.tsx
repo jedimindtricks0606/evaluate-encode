@@ -16,6 +16,31 @@ const { Content } = Layout;
 const { Title, Text } = Typography;
 const { Dragger } = Upload;
 
+/**
+ * 码率合理性评估函数（三段式）
+ * R = actualKbps / targetKbps
+ * 1. R <= 0.25: 极致压缩，满分 1.0
+ * 2. 0.25 < R <= 1.5: 线性区间，从 1.0 降至 0.6
+ * 3. R > 1.5: 指数惩罚，从 0.6 开始快速衰减
+ */
+function computeBitrateScore(targetKbps: number, actualKbps: number): number {
+  if (targetKbps <= 0 || actualKbps <= 0) return 0;
+  const r = actualKbps / targetKbps;
+  const pivotR = 1.5;
+  const pivotScore = 0.6;
+  const alpha = 3.0;
+  const beta = 2.0;
+
+  if (r <= 0.25) {
+    return 1.0;
+  } else if (r <= pivotR) {
+    const k = -0.4 / 1.25;
+    return 1.0 + (r - 0.25) * k;
+  } else {
+    return pivotScore * Math.exp(-alpha * Math.pow(r - pivotR, beta));
+  }
+}
+
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -28,6 +53,8 @@ export default function Home() {
   const [bitrateResults, setBitrateResults] = useState<{ ratio: number; original: number; exported: number } | null>(null);
   const [originalFps, setOriginalFps] = useState<number | undefined>(undefined);
   const [exportedFps, setExportedFps] = useState<number | undefined>(undefined);
+  const [originalCodec, setOriginalCodec] = useState<string | undefined>(undefined);
+  const [exportedCodec, setExportedCodec] = useState<string | undefined>(undefined);
   const [bitrateLoading, setBitrateLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [weights, setWeights] = useState<{ wq: number; ws: number; wb: number }>({ wq: 0.5, ws: 0.25, wb: 0.25 });
@@ -35,8 +62,6 @@ export default function Home() {
   const [finalScore, setFinalScore] = useState<{ overall: number; quality: number; speed: number; bitrate: number; bitrateRational: number } | null>(null);
   const [efficiencyRatio, setEfficiencyRatio] = useState<number | null>(null);
   const [targetBitrateKbps, setTargetBitrateKbps] = useState(2200);
-  const [codec, setCodec] = useState<'h264' | 'h265'>('h264');
-  const [bitrateK, setBitrateK] = useState(2.5);
   const [maxSlowdown, setMaxSlowdown] = useState(3.0);
   const [autoTargetBitrate, setAutoTargetBitrate] = useState(true);
   const [serverIp, setServerIp] = useState('');
@@ -302,32 +327,35 @@ export default function Home() {
     }
   }, [originalVideo?.resolution, exportedVideo?.resolution, originalFps, exportedFps]);
 
+  // 计算目标码率：基于原始码率和编码格式推导
+  // - 相同编码: 目标 = 原始码率
+  // - H.264 -> H.265: 目标 = 原始码率 × 60%
+  // - H.265 -> H.264: 目标 = 原始码率 × 140%
   useEffect(() => {
     if (!autoTargetBitrate) return;
-    const resStr = exportedVideo?.resolution || originalVideo?.resolution || '';
-    const m = resStr.match(/(\d+)x(\d+)/i);
-    const H = m ? Number(m[2]) : 0;
-    const fps = (exportedFps ?? originalFps ?? 30);
-    const f = fps && fps > 0 ? Number(fps) : 30;
-    let base = 2200;
-    if (codec === 'h264') {
-      if (H >= 2100) base = 15000;
-      else if (H >= 1400) base = 6500;
-      else if (H >= 1080) base = 2200;
-      else if (H >= 720) base = 1800;
-      else if (H >= 540) base = 1200;
-      else base = 1200;
-    } else {
-      if (H >= 2100) base = 8000;
-      else if (H >= 1400) base = 3500;
-      else if (H >= 1080) base = 1200;
-      else if (H >= 720) base = 1000;
-      else if (H >= 540) base = 700;
-      else base = 700;
+    // 只有当获取到原始码率后才进行计算
+    const originalBitrateKbps = bitrateResults?.original ? bitrateResults.original / 1000 : 0;
+    if (originalBitrateKbps <= 0) return; // 尚未获取码率信息
+
+    // 判断编码格式
+    const isOrigH264 = originalCodec?.toLowerCase()?.includes('h264') || originalCodec?.toLowerCase()?.includes('avc');
+    const isOrigH265 = originalCodec?.toLowerCase()?.includes('h265') || originalCodec?.toLowerCase()?.includes('hevc');
+    const isExpH264 = exportedCodec?.toLowerCase()?.includes('h264') || exportedCodec?.toLowerCase()?.includes('avc');
+    const isExpH265 = exportedCodec?.toLowerCase()?.includes('h265') || exportedCodec?.toLowerCase()?.includes('hevc');
+
+    let factor = 1.0;
+    if (isOrigH264 && isExpH265) {
+      // H.264 -> H.265: HEVC 效率更高，目标码率可以降低 40%
+      factor = 0.6;
+    } else if (isOrigH265 && isExpH264) {
+      // H.265 -> H.264: AVC 效率较低，目标码率需要提高 40%
+      factor = 1.4;
     }
-    const scaled = Math.round(base * (f / 30));
-    setTargetBitrateKbps(scaled);
-  }, [autoTargetBitrate, codec, exportedVideo?.resolution, originalVideo?.resolution, exportedFps, originalFps]);
+    // 相同编码或其他情况: factor = 1.0
+
+    const targetKbps = Math.round(originalBitrateKbps * factor);
+    setTargetBitrateKbps(targetKbps);
+  }, [autoTargetBitrate, bitrateResults?.original, originalCodec, exportedCodec]);
 
   const handleQualityEvaluate = async () => {
     try {
@@ -465,6 +493,8 @@ export default function Home() {
       setBitrateResults({ ratio: 0, original, exported });
       setOriginalFps(data?.metrics?.fps_before != null ? Number(data.metrics.fps_before) : undefined);
       setExportedFps(data?.metrics?.fps_after != null ? Number(data.metrics.fps_after) : undefined);
+      setOriginalCodec(data?.metrics?.codec_before ?? undefined);
+      setExportedCodec(data?.metrics?.codec_after ?? undefined);
       message.success({ content: '码率分析完成', key: 'bitrate', duration: 2 });
     } catch (err: any) {
       message.error({ content: String(err?.message || err), key: 'bitrate' });
@@ -508,9 +538,8 @@ export default function Home() {
             }
           }
           const R_ = (bitrateResults?.exported ?? 0) / 1000;
-          const TARGET_ = Number(targetBitrateKbps || 0) / 1000;
-          const ratio_ = (TARGET_ > 0 && R_ > 0) ? (R_ / TARGET_) : 0;
-          const B_ = (ratio_ > 0) ? (1.0 / (1.0 + Math.pow(ratio_, bitrateK))) : 0.0;
+          const TARGET_ = Number(targetBitrateKbps || 0);
+          const B_ = computeBitrateScore(TARGET_, R_ * 1000);
           const wq_ = Number(weights.wq || 0);
           const ws_ = Number(weights.ws || 0);
           const wb_ = Number(weights.wb || 0);
@@ -591,8 +620,7 @@ export default function Home() {
         const E = (E_raw > 0) ? 1.0 : 0.0;
 
         const R = afterKbps;
-        const ratio = (targetBitrateKbps > 0 && R > 0) ? (R / targetBitrateKbps) : 0;
-        const B = (ratio > 0) ? (1.0 / (1.0 + Math.pow(ratio, bitrateK))) : 0.0;
+        const B = computeBitrateScore(targetBitrateKbps, R * 1000);
 
         // 4) 画质感知映射 Q
         const Q_percept = Q;
@@ -686,13 +714,13 @@ export default function Home() {
     const W = mm ? Number(mm[1]) : 0;
     const H = mm ? Number(mm[2]) : 0;
     const R = afterKbps;
-    const ratio = (targetBitrateKbps > 0 && R > 0) ? (R / targetBitrateKbps) : 0;
-    const B = (ratio > 0) ? (1.0 / (1.0 + Math.pow(ratio, bitrateK))) : 0.0;
+    const ratio = (targetBitrateKbps > 0 && R > 0) ? (R * 1000 / targetBitrateKbps) : 0;
+    const B = computeBitrateScore(targetBitrateKbps, R * 1000);
     const report = {
       timestamp: new Date().toISOString(),
       weights,
       quality_params: { V0, k },
-      bitrate_params: { target_kbps: targetBitrateKbps, codec, k: bitrateK },
+      bitrate_params: { target_kbps: targetBitrateKbps, codec_before: originalCodec, codec_after: exportedCodec },
       speed_params: { export_time_seconds: timeSec, benchmark_seconds: benchSec, max_slowdown: maxSlowdown },
       source: src,
       encoded: dst,
@@ -706,6 +734,8 @@ export default function Home() {
         bitrate_after_kbps: afterKbps,
         fps_before: fpsBefore,
         fps_after: fpsAfter,
+        codec_before: originalCodec,
+        codec_after: exportedCodec,
         per_frame_bits: BPF,
       },
       scores: {
@@ -966,39 +996,40 @@ export default function Home() {
                     </div>
                     <div className="h-px bg-gray-200 my-2" />
                     <div>
-                      <Text className="block mb-1">码率合理性评价</Text>
+                      <Text className="block mb-1">码率合理性评价（三段式）</Text>
                       <div className="text-gray-500 text-sm">
-                        <div>R 为实际码率（kbps），TARGET 为目标码率（Mbps）</div>
-                        <div>ratio = R ÷ TARGET</div>
-                        <div>
-                          B = 1 ÷ (1 + ratio
-                          <sup>k</sup>
-                          )
-                        </div>
+                        <div>R = 实际码率 ÷ 目标码率</div>
+                        <div>• R ≤ 0.25：满分 1.0（极致压缩）</div>
+                        <div>• 0.25 &lt; R ≤ 1.5：线性区间，从 1.0 降至 0.6</div>
+                        <div>• R &gt; 1.5：指数惩罚，从 0.6 开始快速衰减</div>
                       </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 gap-4">
                       <div>
                         <div className="flex items-center justify-between">
                           <Text className="block mb-1">目标码率（Mbps）</Text>
                           <Space size="small" align="center">
-                            <Text type="secondary" className="text-xs">自动推荐</Text>
+                            <Text type="secondary" className="text-xs">自动推导</Text>
                             <Switch size="small" checked={autoTargetBitrate} onChange={(v) => setAutoTargetBitrate(v)} />
                           </Space>
                         </div>
                         <input type="number" step="0.1" value={targetBitrateKbps ? (targetBitrateKbps / 1000) : 0} onChange={(e) => setTargetBitrateKbps(Math.round(Number(e.target.value) * 1000))} disabled={autoTargetBitrate} className="border rounded px-2 py-1 w-full" />
-                        <Text type="secondary" className="block text-xs mt-1">基于分辨率+帧率+编码格式推荐</Text>
+                        <div className="text-gray-500 text-xs mt-1">
+                          <div>基于原视频码率与编码格式自动推导：</div>
+                          <div>• 相同编码：目标 = 原始码率</div>
+                          <div>• H.264→H.265：目标 = 原始码率 × 60%</div>
+                          <div>• H.265→H.264：目标 = 原始码率 × 140%</div>
+                        </div>
                       </div>
-                      <div>
-                        <Text className="block mb-1">编码格式</Text>
-                        <select value={codec} onChange={(e) => setCodec(e.target.value as 'h264' | 'h265')} className="border rounded px-2 py-1 w-full">
-                          <option value="h264">H.264</option>
-                          <option value="h265">H.265</option>
-                        </select>
-                      </div>
-                      <div>
-                        <Text className="block mb-1">码率惩罚陡峭度 k</Text>
-                        <input type="number" step="0.1" value={bitrateK} onChange={(e) => setBitrateK(Number(e.target.value))} className="border rounded px-2 py-1 w-full" />
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="p-2 bg-gray-50 rounded">
+                          <Text type="secondary">原视频编码：</Text>
+                          <Text className="font-medium">{originalCodec || '未检测'}</Text>
+                        </div>
+                        <div className="p-2 bg-gray-50 rounded">
+                          <Text type="secondary">导出视频编码：</Text>
+                          <Text className="font-medium">{exportedCodec || '未检测'}</Text>
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-3">
