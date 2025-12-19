@@ -691,6 +691,59 @@ app.post('/automation/save-upload', upload.single('file'), async (req, res) => {
   }
 });
 
+// 飞书 Webhook 推送
+app.post('/automation/notify-feishu', express.json(), async (req, res) => {
+  try {
+    const webhookUrl = req.body?.webhook_url;
+    const title = req.body?.title || '评估结果通知';
+    const content = req.body?.content || '';
+    const csvUrl = req.body?.csv_url || '';
+
+    if (!webhookUrl) {
+      return res.status(400).json({ status: 'error', message: 'missing webhook_url' });
+    }
+
+    // 构建富文本消息
+    const msgContent = [];
+    if (content) {
+      msgContent.push([{ tag: 'text', text: content }]);
+    }
+    if (csvUrl) {
+      msgContent.push([
+        { tag: 'text', text: 'CSV 下载链接：' },
+        { tag: 'a', text: csvUrl, href: csvUrl }
+      ]);
+    }
+
+    const payload = {
+      msg_type: 'post',
+      content: {
+        post: {
+          zh_cn: {
+            title: title,
+            content: msgContent
+          }
+        }
+      }
+    };
+
+    const resp = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      body: JSON.stringify(payload)
+    });
+    const data = await resp.json().catch(() => ({}));
+
+    if (data?.code === 0 || data?.StatusCode === 0) {
+      return res.json({ status: 'success', message: '推送成功' });
+    } else {
+      return res.status(500).json({ status: 'error', message: data?.msg || '推送失败', detail: data });
+    }
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '推送失败', detail: String(e && e.message || e) });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

@@ -413,7 +413,7 @@ export default function Automation() {
               </Col>
               <Col span={6}>
                 <Text className="block mb-1">maxrate</Text>
-                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className="border rounded px-2 py-1 w-full text-gray-400" placeholder="12M" />
+                <input type="text" value={matrixMaxrates} onChange={(e) => setMatrixMaxrates(e.target.value)} className={`border rounded px-2 py-1 w-full ${matrixMaxrates ? '' : 'text-gray-400'}`} placeholder="12M" />
               </Col>
               {matrixEncoder === 'nvenc' && (
               <Col span={6}>
@@ -423,7 +423,7 @@ export default function Automation() {
               )}
               <Col span={6}>
                 <Text className="block mb-1">bufsize（逗号分隔）</Text>
-                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className="border rounded px-2 py-1 w-full text-gray-400" placeholder="12M" />
+                <input type="text" value={matrixBufsizes} onChange={(e) => setMatrixBufsizes(e.target.value)} className={`border rounded px-2 py-1 w-full ${matrixBufsizes ? '' : 'text-gray-400'}`} placeholder="12M" />
               </Col>
             </Row>
             <Row gutter={16}>
@@ -775,8 +775,8 @@ export default function Automation() {
                     } catch (_) {}
                   }
                   if (processed0 === 0) { message.error('未处理任何导出任务'); setMatrixAllRunning(false); return; }
-                  // 并行评估，限制并发数为 2（避免 ffmpeg 进程过多导致系统资源耗尽）
-                  const EVAL_CONCURRENCY = 2;
+                  // 并行评估，限制并发数
+                  const EVAL_CONCURRENCY = 4;
                   const evaluateOne = async (ex: typeof exportedList[0]) => {
                     try {
                       const afterFile3 = new File([ex.blob], ex.name, { type: ex.blob.type || 'video/mp4' });
@@ -801,6 +801,69 @@ export default function Automation() {
                     await Promise.all(batch.map(evaluateOne));
                   }
                   message.success('矩阵评估完成');
+
+                  // 自动生成 CSV 并推送到飞书
+                  try {
+                    const header = [
+                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','ffmpeg_command'
+                    ];
+                    // 需要从 store 获取最新的 matrixJobs
+                    const latestJobs = useAutomationStore.getState().matrixJobs;
+                    const evaledJobs = latestJobs.filter(j => j.evalSummary);
+                    const rows = evaledJobs.map(j => {
+                      const p = j.params || {} as any;
+                      const v = [
+                        j.encoder,
+                        String(p.preset ?? ''),
+                        String(p.b ?? ''),
+                        String(p.mr ?? ''),
+                        String(p.bs ?? ''),
+                        String(p.rc ?? 'vbr'),
+                        String(p.cq ?? ''),
+                        String(p.qp ?? ''),
+                        String((p.temporal_aq ?? 1)),
+                        String((p.spatial_aq ?? 1)),
+                        String(p.profile ?? ''),
+                        String(p.nvenc_codec ?? ''),
+                        String(p.tune ?? ''),
+                        String(p.multipass ?? ''),
+                        String(p.rc_lookahead ?? ''),
+                        String(p.minrate ?? ''),
+                        j.outputFilename,
+                        Number(j.evalSummary?.overall ?? 0).toFixed(4),
+                        String(j.evalSummary?.vmaf ?? ''),
+                        String(j.evalSummary?.psnr ?? ''),
+                        String(j.evalSummary?.ssim ?? ''),
+                        String(j.evalSummary?.bitrate_after_kbps ?? ''),
+                        j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                        j.command || ''
+                      ];
+                      return v.map(s => {
+                        const str = String(s ?? '');
+                        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+                          return '"' + str.replace(/"/g, '""') + '"';
+                        }
+                        return str;
+                      }).join(',');
+                    });
+                    const csv = [header.join(','), ...rows].join('\n');
+                    const csvFilename = `matrix_evaluation_${Date.now()}.csv`;
+                    const saveResp = await (await import('@/lib/api')).automationSaveCsv({ csvText: csv, localSaveDir: '', filename: csvFilename });
+                    // 使用与视频下载相同的 URL 拼接逻辑
+                    const csvServerUrl = saveResp?.url ? (serverIp === '0' ? `http://localhost:3000${saveResp.url}` : `http://${serverIp}:${serverPort}${saveResp.url}`) : null;
+                    const jobCount = evaledJobs.length;
+                    const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
+                    const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
+                    await (await import('@/lib/api')).notifyFeishu({
+                      webhookUrl: FEISHU_WEBHOOK,
+                      title: '矩阵评估完成',
+                      content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
+                      csvUrl: csvServerUrl || undefined
+                    });
+                    message.success('已推送到飞书');
+                  } catch (feishuErr) {
+                    console.warn('[feishu] 推送失败', feishuErr);
+                  }
                 } catch (e) {
                   message.error('矩阵评估失败');
                 } finally {
@@ -815,8 +878,8 @@ export default function Automation() {
                   setBatchEvaluating(true);
                   // 过滤出需要评估的任务
                   const jobsToEval = matrixJobs.filter(j => !j.evalSavedJsonPath && !j.evalSummary && j.downloadUrl);
-                  // 并行评估，限制并发数为 2
-                  const EVAL_CONCURRENCY = 2;
+                  // 并行评估，限制并发数
+                  const EVAL_CONCURRENCY = 4;
                   const evaluateJob = async (job: typeof matrixJobs[0]) => {
                     try {
                       // 带超时的 fetch
@@ -850,6 +913,67 @@ export default function Automation() {
                     await Promise.all(batch.map(evaluateJob));
                   }
                   message.success('批量评估完成');
+
+                  // 自动生成 CSV 并推送到飞书
+                  try {
+                    const header = [
+                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','ffmpeg_command'
+                    ];
+                    const latestJobs = useAutomationStore.getState().matrixJobs;
+                    const evaledJobs = latestJobs.filter(j => j.evalSummary);
+                    const rows = evaledJobs.map(j => {
+                      const p = j.params || {} as any;
+                      const v = [
+                        j.encoder,
+                        String(p.preset ?? ''),
+                        String(p.b ?? ''),
+                        String(p.mr ?? ''),
+                        String(p.bs ?? ''),
+                        String(p.rc ?? 'vbr'),
+                        String(p.cq ?? ''),
+                        String(p.qp ?? ''),
+                        String((p.temporal_aq ?? 1)),
+                        String((p.spatial_aq ?? 1)),
+                        String(p.profile ?? ''),
+                        String(p.nvenc_codec ?? ''),
+                        String(p.tune ?? ''),
+                        String(p.multipass ?? ''),
+                        String(p.rc_lookahead ?? ''),
+                        String(p.minrate ?? ''),
+                        j.outputFilename,
+                        Number(j.evalSummary?.overall ?? 0).toFixed(4),
+                        String(j.evalSummary?.vmaf ?? ''),
+                        String(j.evalSummary?.psnr ?? ''),
+                        String(j.evalSummary?.ssim ?? ''),
+                        String(j.evalSummary?.bitrate_after_kbps ?? ''),
+                        j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                        j.command || ''
+                      ];
+                      return v.map(s => {
+                        const str = String(s ?? '');
+                        if (str.includes(',') || str.includes('\n') || str.includes('"')) {
+                          return '"' + str.replace(/"/g, '""') + '"';
+                        }
+                        return str;
+                      }).join(',');
+                    });
+                    const csv = [header.join(','), ...rows].join('\n');
+                    const csvFilename = `matrix_evaluation_${Date.now()}.csv`;
+                    const saveResp = await (await import('@/lib/api')).automationSaveCsv({ csvText: csv, localSaveDir: '', filename: csvFilename });
+                    const csvServerUrl = saveResp?.url ? (serverIp === '0' ? `http://localhost:3000${saveResp.url}` : `http://${serverIp}:${serverPort}${saveResp.url}`) : null;
+                    const jobCount = evaledJobs.length;
+                    const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
+                    const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
+                    await (await import('@/lib/api')).notifyFeishu({
+                      webhookUrl: FEISHU_WEBHOOK,
+                      title: '批量评估完成',
+                      content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
+                      csvUrl: csvServerUrl || undefined
+                    });
+                    message.success('已推送到飞书');
+                  } catch (feishuErr) {
+                    console.warn('[feishu] 推送失败', feishuErr);
+                  }
                 } catch (e) {
                   message.error('批量评估失败');
                 } finally {
@@ -865,11 +989,11 @@ export default function Automation() {
               }}>导出评估CSV</Button>
               )}
             </div>
-            <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={async () => {
+            <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={() => {
               try {
-                  const header = [
-                    'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url'
-                  ];
+                const header = [
+                  'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','ffmpeg_command'
+                ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
                   const v = [
@@ -894,12 +1018,10 @@ export default function Automation() {
                     String(j.evalSummary?.vmaf ?? ''),
                     String(j.evalSummary?.psnr ?? ''),
                     String(j.evalSummary?.ssim ?? ''),
-                      String(j.evalSummary?.bitrate_after_kbps ?? ''),
-                      j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
-                      j.downloadUrl || '',
-                      j.savedPath || '',
-                      j.evalSavedJsonPath || ''
-                    ];
+                    String(j.evalSummary?.bitrate_after_kbps ?? ''),
+                    j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                    j.command || ''
+                  ];
                   return v.map(s => {
                     const str = String(s ?? '');
                     if (str.includes(',') || str.includes('\n') || str.includes('"')) {

@@ -168,3 +168,25 @@ export async function automationSaveUpload(options: {
   if (!resp.ok) throw new Error(String((data as any)?.message || '保存上传文件失败'));
   return data as any;
 }
+
+export async function notifyFeishu(options: {
+  webhookUrl: string;
+  title?: string;
+  content?: string;
+  csvUrl?: string;
+}): Promise<{ status: string; message?: string }> {
+  const body = {
+    webhook_url: options.webhookUrl,
+    title: options.title,
+    content: options.content,
+    csv_url: options.csvUrl,
+  };
+  const resp = await fetch('http://localhost:3000/automation/notify-feishu', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '飞书推送失败'));
+  return data as any;
+}
