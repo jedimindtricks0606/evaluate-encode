@@ -849,9 +849,8 @@ export default function Automation() {
                     const csv = [header.join(','), ...rows].join('\n');
                     const csvFilename = `matrix_evaluation_${Date.now()}.csv`;
                     const saveResp = await (await import('@/lib/api')).automationSaveCsv({ csvText: csv, localSaveDir: '', filename: csvFilename });
-                    // CSV 保存在本地后台服务器（端口3000），使用当前页面的 origin 作为基础地址
-                    const backendOrigin = window.location.origin.replace(/:\d+$/, ':3000');
-                    const csvServerUrl = saveResp?.url ? `${backendOrigin}${saveResp.url}` : null;
+                    // 使用后端返回的完整 URL（包含本机 IP）
+                    const csvFullUrl = (saveResp as any)?.full_url || null;
                     const jobCount = evaledJobs.length;
                     const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
                     const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
@@ -859,7 +858,7 @@ export default function Automation() {
                       webhookUrl: FEISHU_WEBHOOK,
                       title: '矩阵评估完成',
                       content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
-                      csvUrl: csvServerUrl || undefined
+                      csvUrl: csvFullUrl || undefined
                     });
                     message.success('已推送到飞书');
                   } catch (feishuErr) {
@@ -961,9 +960,8 @@ export default function Automation() {
                     const csv = [header.join(','), ...rows].join('\n');
                     const csvFilename = `matrix_evaluation_${Date.now()}.csv`;
                     const saveResp = await (await import('@/lib/api')).automationSaveCsv({ csvText: csv, localSaveDir: '', filename: csvFilename });
-                    // CSV 保存在本地后台服务器（端口3000），使用当前页面的 origin 作为基础地址
-                    const backendOrigin = window.location.origin.replace(/:\d+$/, ':3000');
-                    const csvServerUrl = saveResp?.url ? `${backendOrigin}${saveResp.url}` : null;
+                    // 使用后端返回的完整 URL（包含本机 IP）
+                    const csvFullUrl = (saveResp as any)?.full_url || null;
                     const jobCount = evaledJobs.length;
                     const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
                     const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
@@ -971,7 +969,7 @@ export default function Automation() {
                       webhookUrl: FEISHU_WEBHOOK,
                       title: '批量评估完成',
                       content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
-                      csvUrl: csvServerUrl || undefined
+                      csvUrl: csvFullUrl || undefined
                     });
                     message.success('已推送到飞书');
                   } catch (feishuErr) {

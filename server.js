@@ -29,6 +29,20 @@ function getBaseDir() {
   const home = os.homedir() || process.env.HOME || '';
   return path.join(home || '~', 'evaluate-server');
 }
+
+// 获取本机局域网 IP 地址
+function getLocalIP() {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name] || []) {
+      // 跳过内部地址和非 IPv4 地址
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
+  }
+  return 'localhost';
+}
 const BASE_DIR = getBaseDir();
 const FFMPEG_DIR = path.join(BASE_DIR, 'ffmpeg');
 try {
@@ -597,7 +611,11 @@ app.post('/automation/save-csv', express.json({ limit: '10mb' }), async (req, re
     if (!fs.existsSync(saveDir)) fs.mkdirSync(saveDir, { recursive: true });
     const outPath = path.join(saveDir, filename);
     fs.writeFileSync(outPath, String(csv), 'utf8');
-    return res.json({ status: 'success', saved_path: outPath, url: `/files/${filename}` });
+    // 返回完整的下载 URL，使用本机 IP
+    const localIP = getLocalIP();
+    const port = process.env.PORT || 3000;
+    const fullUrl = `http://${localIP}:${port}/files/${filename}`;
+    return res.json({ status: 'success', saved_path: outPath, url: `/files/${filename}`, full_url: fullUrl });
   } catch (e) {
     return res.status(500).json({ status: 'error', message: 'save csv failed', detail: String(e && e.message || e) });
   }
