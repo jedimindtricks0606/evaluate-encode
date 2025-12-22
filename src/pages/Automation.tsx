@@ -583,18 +583,8 @@ export default function Automation() {
                           }
                         }
                         updateMatrixJob(job.id, { savedPath: saved });
-                        // preview URL with timeout
-                        try {
-                          const controller = new AbortController();
-                          const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
-                          const f = await fetch(full, { signal: controller.signal });
-                          clearTimeout(timeoutId);
-                          const blob = await f.blob();
-                          const obj = URL.createObjectURL(blob);
-                          updateMatrixJob(job.id, { previewUrl: obj });
-                        } catch (err) {
-                          console.warn('[matrix-export] preview fetch failed for', job.id, err);
-                        }
+                        // 流式预览：直接使用远程 URL，浏览器边下边播
+                        updateMatrixJob(job.id, { previewUrl: full });
                         processed++;
                       }
                     } catch (e) {
@@ -731,8 +721,8 @@ export default function Automation() {
                   }
                   }
                   addMatrixJobs(jobs0);
-                  // 保存 blob 以便评估时复用，避免重复下载
-                  const exportedList: { id: string; url: string; durMs: number | null; name: string; blob: Blob }[] = [];
+                  // 记录导出信息，评估时按需下载
+                  const exportedList: { id: string; url: string; durMs: number | null; name: string }[] = [];
                   let processed0 = 0;
                   for (const job of jobs0) {
                     try {
@@ -754,22 +744,10 @@ export default function Automation() {
                           }
                         }
                         updateMatrixJob(job.id, { savedPath: saved2 });
-                        // 下载一次 blob，用于预览和后续评估（带超时）
-                        let blob2: Blob | null = null;
-                        try {
-                          const controller2 = new AbortController();
-                          const timeoutId2 = setTimeout(() => controller2.abort(), 60000); // 60秒超时
-                          const f2 = await fetch(full2, { signal: controller2.signal });
-                          clearTimeout(timeoutId2);
-                          blob2 = await f2.blob();
-                          const obj2 = URL.createObjectURL(blob2);
-                          updateMatrixJob(job.id, { previewUrl: obj2 });
-                        } catch (err2) {
-                          console.warn('[matrix-eval] preview fetch failed for', job.id, err2);
-                        }
-                        if (blob2) {
-                          exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename, blob: blob2 });
-                        }
+                        // 流式预览：直接使用远程 URL
+                        updateMatrixJob(job.id, { previewUrl: full2 });
+                        // 记录导出信息，评估时再按需下载
+                        exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename });
                         processed0++;
                       }
                     } catch (_) {}
@@ -779,7 +757,14 @@ export default function Automation() {
                   const EVAL_CONCURRENCY = 4;
                   const evaluateOne = async (ex: typeof exportedList[0]) => {
                     try {
-                      const afterFile3 = new File([ex.blob], ex.name, { type: ex.blob.type || 'video/mp4' });
+                      // 评估时按需下载 blob
+                      const controller = new AbortController();
+                      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120秒超时
+                      const resp = await fetch(ex.url, { signal: controller.signal });
+                      clearTimeout(timeoutId);
+                      if (!resp.ok) return;
+                      const blob = await resp.blob();
+                      const afterFile3 = new File([blob], ex.name, { type: blob.type || 'video/mp4' });
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
                       const benchSecVal = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSecVal;
                       const tgtRTF = (inputDuration || 30) / Math.max(benchSecVal, 1e-6);
