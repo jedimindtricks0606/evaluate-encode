@@ -721,8 +721,8 @@ export default function Automation() {
                   }
                   }
                   addMatrixJobs(jobs0);
-                  // 记录导出信息，评估时按需下载
-                  const exportedList: { id: string; url: string; durMs: number | null; name: string }[] = [];
+                  // 记录导出信息，评估时从本地读取
+                  const exportedList: { id: string; localUrl: string; durMs: number | null; name: string }[] = [];
                   let processed0 = 0;
                   for (const job of jobs0) {
                     try {
@@ -746,24 +746,35 @@ export default function Automation() {
                         updateMatrixJob(job.id, { savedPath: saved2 });
                         // 流式预览：直接使用远程 URL
                         updateMatrixJob(job.id, { previewUrl: full2 });
-                        // 记录导出信息，评估时再按需下载
-                        exportedList.push({ id: job.id, url: full2, durMs: durMs2, name: job.outputFilename });
+                        // 记录导出信息，评估时从后端本地读取（已通过 automationSave 下载）
+                        // 构造后端本地文件 URL：http://backend:3000/files/filename
+                        const API_BASE = window.location.hostname === 'localhost'
+                          ? 'http://localhost:3000'
+                          : `http://${window.location.hostname}:3000`;
+                        const localFileUrl = `${API_BASE}/files/${job.outputFilename}`;
+                        exportedList.push({ id: job.id, localUrl: localFileUrl, durMs: durMs2, name: job.outputFilename });
                         processed0++;
                       }
                     } catch (_) {}
                   }
                   if (processed0 === 0) { message.error('未处理任何导出任务'); setMatrixAllRunning(false); return; }
+                  console.log('[matrix-eval] exportedList count:', exportedList.length);
                   // 并行评估，限制并发数
                   const EVAL_CONCURRENCY = 4;
                   const evaluateOne = async (ex: typeof exportedList[0]) => {
                     try {
-                      // 评估时按需下载 blob
+                      console.log('[matrix-eval] start evaluating', ex.id, ex.localUrl);
+                      // 从后端本地读取文件（已通过 automationSave 下载到后端）
                       const controller = new AbortController();
-                      const timeoutId = setTimeout(() => controller.abort(), 120000); // 120秒超时
-                      const resp = await fetch(ex.url, { signal: controller.signal });
+                      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
+                      const resp = await fetch(ex.localUrl, { signal: controller.signal });
                       clearTimeout(timeoutId);
-                      if (!resp.ok) return;
+                      if (!resp.ok) {
+                        console.warn('[matrix-eval] fetch not ok', ex.id, resp.status);
+                        return;
+                      }
                       const blob = await resp.blob();
+                      console.log('[matrix-eval] blob loaded from local', ex.id, blob.size);
                       const afterFile3 = new File([blob], ex.name, { type: blob.type || 'video/mp4' });
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
                       const benchSecVal = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSecVal;
@@ -778,7 +789,10 @@ export default function Automation() {
                         bitrate_after_kbps: (evalResp3?.metrics?.bitrate_after_bps ?? 0) / 1000,
                       };
                       updateMatrixJob(ex.id, { evalSavedJsonPath: saveJson3?.url || null, evalSummary: summary3 });
-                    } catch (_) {}
+                      console.log('[matrix-eval] done', ex.id);
+                    } catch (err) {
+                      console.warn('[matrix-eval] evaluateOne failed for', ex.id, err);
+                    }
                   };
                   // 分批并行执行
                   for (let i = 0; i < exportedList.length; i += EVAL_CONCURRENCY) {
@@ -866,22 +880,39 @@ export default function Automation() {
                   setBatchEvaluating(true);
                   // 过滤出需要评估的任务
                   const jobsToEval = matrixJobs.filter(j => !j.evalSavedJsonPath && !j.evalSummary && j.downloadUrl);
+                  console.log('[batch-eval] jobsToEval count:', jobsToEval.length, 'total matrixJobs:', matrixJobs.length);
+                  console.log('[batch-eval] matrixJobs detail:', matrixJobs.map(j => ({ id: j.id, downloadUrl: j.downloadUrl, evalSummary: !!j.evalSummary, evalSavedJsonPath: j.evalSavedJsonPath })));
+                  if (jobsToEval.length === 0) {
+                    message.warning('没有需要评估的任务');
+                    setBatchEvaluating(false);
+                    return;
+                  }
                   // 并行评估，限制并发数
                   const EVAL_CONCURRENCY = 4;
                   const evaluateJob = async (job: typeof matrixJobs[0]) => {
                     try {
-                      // 带超时的 fetch
+                      // 从后端本地读取文件（矩阵导出时已通过 automationSave 下载到后端）
+                      const API_BASE = window.location.hostname === 'localhost'
+                        ? 'http://localhost:3000'
+                        : `http://${window.location.hostname}:3000`;
+                      const localFileUrl = `${API_BASE}/files/${job.outputFilename}`;
+                      console.log('[batch-eval] start evaluating', job.id, localFileUrl);
                       const controller = new AbortController();
                       const timeoutId = setTimeout(() => controller.abort(), 60000); // 60秒超时
-                      const resp = await fetch(job.downloadUrl!, { signal: controller.signal });
+                      const resp = await fetch(localFileUrl, { signal: controller.signal });
                       clearTimeout(timeoutId);
-                      if (!resp.ok) return;
+                      if (!resp.ok) {
+                        console.warn('[batch-eval] fetch not ok', job.id, resp.status);
+                        return;
+                      }
                       const blob = await resp.blob();
+                      console.log('[batch-eval] blob loaded from local', job.id, blob.size);
                       const afterFile = new File([blob], job.outputFilename, { type: blob.type || 'video/mp4' });
                       const expSec = job.exportDurationMs ? (job.exportDurationMs / 1000) : (inputDuration || 30);
                       const benchSec = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSec;
                       const tgtRTF2 = (inputDuration || 30) / Math.max(benchSec, 1e-6);
                       const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, targetRTF: tgtRTF2, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      console.log('[batch-eval] evalResp', job.id, evalResp);
                       const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary = {
                         overall: Number(evalResp?.final_score ?? 0),
