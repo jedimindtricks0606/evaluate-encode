@@ -457,8 +457,9 @@ export default function Automation() {
                     jobId = String(up?.job_id || '');
                     const codec = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                     const presetFast = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
+                    const hwaccel = matrixEncoder === 'nvenc' ? '-hwaccel cuda -hwaccel_output_format cuda ' : '';
                     const benchOut = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
-                    const benchCmd = `ffmpeg -y -i {input} -c:v ${codec} -preset ${presetFast} -c:a copy {output}`;
+                    const benchCmd = `ffmpeg -y ${hwaccel}-i {input} -c:v ${codec} -preset ${presetFast} -c:a copy {output}`;
                     if (jobId) {
                       const benchResp = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId, command: benchCmd, outputFilename: benchOut });
                       if (benchResp?.status === 'success' && benchResp?.duration_ms != null) {
@@ -551,7 +552,8 @@ export default function Automation() {
                                 if (nvencMinrate) paramsList.push(`-minrate ${nvencMinrate}`);
                               }
                               const params = paramsList.join(' ');
-                              const command = `ffmpeg -y -i {input} ${params} {output}`;
+                              const hwaccelCmd = matrixEncoder === 'nvenc' ? '-hwaccel cuda -hwaccel_output_format cuda ' : '';
+                              const command = `ffmpeg -y ${hwaccelCmd}-i {input} ${params} {output}`;
                               // 使用索引确保 id 唯一
                               jobs.push({ id: `${now}-${jobIndex}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
@@ -617,8 +619,9 @@ export default function Automation() {
                     jobId0 = String(up0?.job_id || '');
                     const codec0 = matrixEncoder === 'x264' ? 'libx264' : (matrixEncoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
                     const presetFast0 = matrixEncoder === 'nvenc' ? 'p1' : 'veryfast';
+                    const hwaccel0 = matrixEncoder === 'nvenc' ? '-hwaccel cuda -hwaccel_output_format cuda ' : '';
                     const benchOut0 = `benchmark_${matrixEncoder}_${Date.now()}.mp4`;
-                    const benchCmd0 = `ffmpeg -y -i {input} -c:v ${codec0} -preset ${presetFast0} -c:a copy {output}`;
+                    const benchCmd0 = `ffmpeg -y ${hwaccel0}-i {input} -c:v ${codec0} -preset ${presetFast0} -c:a copy {output}`;
                     if (jobId0) {
                       const benchResp0 = await (await import('@/lib/api')).automationProcess({ serverIp, serverPort, jobId: jobId0, command: benchCmd0, outputFilename: benchOut0 });
                       if (benchResp0?.status === 'success' && benchResp0?.duration_ms != null) {
@@ -711,7 +714,8 @@ export default function Automation() {
                                 if (nvencMinrate) paramsList2.push(`-minrate ${nvencMinrate}`);
                               }
                               const params = paramsList2.join(' ');
-                              const command = `ffmpeg -y -i {input} ${params} {output}`;
+                              const hwaccelCmd2 = matrixEncoder === 'nvenc' ? '-hwaccel cuda -hwaccel_output_format cuda ' : '';
+                              const command = `ffmpeg -y ${hwaccelCmd2}-i {input} ${params} {output}`;
                               // 使用索引确保 id 唯一
                               jobs0.push({ id: `${now0}-${jobIndex}`, encoder: matrixEncoder, params: { preset, b, mr, bs, cq, qp, rc: matrixRcMode, temporal_aq: matrixTemporalAQ ? 1 : 0, spatial_aq: matrixSpatialAQ ? 1 : 0, profile: matrixProfile, nvenc_codec: nvencCodec, tune: nvencTune, multipass: nvencMultipass, rc_lookahead: la, minrate: nvencMinrate }, command, outputFilename: outfile });
                             }
