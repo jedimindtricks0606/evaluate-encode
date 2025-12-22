@@ -59,6 +59,7 @@ export default function Automation() {
   const [matrixAllChosen, setMatrixAllChosen] = useState(false);
   const [csvModalVisible, setCsvModalVisible] = useState(false);
   const [csvFilename, setCsvFilename] = useState<string>('');
+  const [evalConcurrency, setEvalConcurrency] = useState<number>(2);
 
   const automationUploadProps = {
     multiple: false,
@@ -760,7 +761,7 @@ export default function Automation() {
                   if (processed0 === 0) { message.error('未处理任何导出任务'); setMatrixAllRunning(false); return; }
                   console.log('[matrix-eval] exportedList count:', exportedList.length);
                   // 并行评估，限制并发数
-                  const EVAL_CONCURRENCY = 4;
+                  const EVAL_CONCURRENCY = evalConcurrency;
                   const evaluateOne = async (ex: typeof exportedList[0]) => {
                     try {
                       console.log('[matrix-eval] start evaluating', ex.id, ex.localUrl);
@@ -888,7 +889,7 @@ export default function Automation() {
                     return;
                   }
                   // 并行评估，限制并发数
-                  const EVAL_CONCURRENCY = 4;
+                  const EVAL_CONCURRENCY = evalConcurrency;
                   const evaluateJob = async (job: typeof matrixJobs[0]) => {
                     try {
                       // 从后端本地读取文件（矩阵导出时已通过 automationSave 下载到后端）
@@ -1011,6 +1012,11 @@ export default function Automation() {
                 setCsvModalVisible(true);
               }}>导出评估CSV</Button>
               )}
+            </div>
+            <div className="mt-3">
+              <Text className="block mb-1">评估并发数（1-8）</Text>
+              <input type="number" min={1} max={8} value={evalConcurrency} onChange={(e) => setEvalConcurrency(Math.max(1, Math.min(8, Number(e.target.value) || 2)))} className="border rounded px-2 py-1 w-24" />
+              <Text type="secondary" className="ml-2">同时进行的评估任务数量</Text>
             </div>
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={() => {
               try {
