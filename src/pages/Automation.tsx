@@ -805,7 +805,7 @@ export default function Automation() {
                   // 自动生成 CSV 并推送到飞书
                   try {
                     const header = [
-                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','ffmpeg_command'
+                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
                     ];
                     // 需要从 store 获取最新的 matrixJobs
                     const latestJobs = useAutomationStore.getState().matrixJobs;
@@ -836,6 +836,9 @@ export default function Automation() {
                         String(j.evalSummary?.ssim ?? ''),
                         String(j.evalSummary?.bitrate_after_kbps ?? ''),
                         j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                        j.downloadUrl || '',
+                        j.savedPath || '',
+                        j.evalSavedJsonPath || '',
                         j.command || ''
                       ];
                       return v.map(s => {
@@ -917,7 +920,7 @@ export default function Automation() {
                   // 自动生成 CSV 并推送到飞书
                   try {
                     const header = [
-                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','ffmpeg_command'
+                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
                     ];
                     const latestJobs = useAutomationStore.getState().matrixJobs;
                     const evaledJobs = latestJobs.filter(j => j.evalSummary);
@@ -947,6 +950,9 @@ export default function Automation() {
                         String(j.evalSummary?.ssim ?? ''),
                         String(j.evalSummary?.bitrate_after_kbps ?? ''),
                         j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                        j.downloadUrl || '',
+                        j.savedPath || '',
+                        j.evalSavedJsonPath || '',
                         j.command || ''
                       ];
                       return v.map(s => {
@@ -993,7 +999,7 @@ export default function Automation() {
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={() => {
               try {
                 const header = [
-                  'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','ffmpeg_command'
+                  'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
                 ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
@@ -1021,6 +1027,9 @@ export default function Automation() {
                     String(j.evalSummary?.ssim ?? ''),
                     String(j.evalSummary?.bitrate_after_kbps ?? ''),
                     j.exportDurationMs != null ? (Number(j.exportDurationMs)/1000).toFixed(2) : '',
+                    j.downloadUrl || '',
+                    j.savedPath || '',
+                    j.evalSavedJsonPath || '',
                     j.command || ''
                   ];
                   return v.map(s => {

@@ -4,7 +4,7 @@ import morgan from 'morgan';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { spawnSync, execFileSync } from 'child_process';
+import { spawn, spawnSync, execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { pipeline } from 'stream/promises';
 import { Readable } from 'stream';
@@ -164,120 +164,142 @@ function getFps(meta) {
 }
 
 function computePSNR(beforePath, afterPath) {
-  // Use scale2ref to match dimensions; parse stderr for "average:" value
-  const args = [
-    '-hide_banner',
-    '-i', afterPath,
-    '-i', beforePath,
-    '-lavfi', '[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist][ref]psnr',
-    '-f', 'null', '-'
-  ];
-  try {
-    console.log('[psnr] ffmpeg args', args.join(' '));
-    const proc = spawnSync('ffmpeg', args, { encoding: 'utf8' });
-    console.log('[psnr] ffmpeg status', { status: proc.status, error: proc.error ? String(proc.error) : null, stderr_head: (proc.stderr || '').split(/\r?\n/).slice(0, 5) });
-    const text = (proc.stderr || '') + (proc.stdout || '');
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    let avg = null;
-    for (const line of lines) {
-      const m = line.match(/average\s*:\s*([0-9]+\.?[0-9]*)/i);
-      if (m) avg = Number(m[1]);
+  return new Promise((resolve) => {
+    // Use scale2ref to match dimensions; parse stderr for "average:" value
+    const args = [
+      '-hide_banner',
+      '-i', afterPath,
+      '-i', beforePath,
+      '-lavfi', '[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist][ref]psnr',
+      '-f', 'null', '-'
+    ];
+    try {
+      console.log('[psnr] ffmpeg args', args.join(' '));
+      const proc = spawn('ffmpeg', args, { encoding: 'utf8' });
+      let stderr = '';
+      let stdout = '';
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.on('close', (code) => {
+        console.log('[psnr] ffmpeg status', { status: code, stderr_head: stderr.split(/\r?\n/).slice(0, 5) });
+        const text = stderr + stdout;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        let avg = null;
+        for (const line of lines) {
+          const m = line.match(/average\s*:\s*([0-9]+\.?[0-9]*)/i);
+          if (m) avg = Number(m[1]);
+        }
+        resolve(isNaN(avg) ? null : avg);
+      });
+      proc.on('error', () => resolve(null));
+    } catch (e) {
+      resolve(null);
     }
-    return isNaN(avg) ? null : avg;
-  } catch (e) {
-    return null;
-  }
+  });
 }
 
 function computeSSIM(beforePath, afterPath) {
-  // Parse stderr for "All:" average SSIM value (0..1)
-  const args = [
-    '-hide_banner',
-    '-i', afterPath,
-    '-i', beforePath,
-    '-lavfi', '[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist][ref]ssim',
-    '-f', 'null', '-'
-  ];
-  try {
-    console.log('[ssim] ffmpeg args', args.join(' '));
-    const proc = spawnSync('ffmpeg', args, { encoding: 'utf8' });
-    console.log('[ssim] ffmpeg status', { status: proc.status, error: proc.error ? String(proc.error) : null, stderr_head: (proc.stderr || '').split(/\r?\n/).slice(0, 5) });
-    const text = (proc.stderr || '') + (proc.stdout || '');
-    const lines = text.split(/\r?\n/).filter(Boolean);
-    let all = null;
-    for (const line of lines) {
-      const m = line.match(/All\s*:\s*([0-9]+\.?[0-9]*)/i);
-      if (m) {
-        all = Number(m[1]);
-      }
+  return new Promise((resolve) => {
+    // Parse stderr for "All:" average SSIM value (0..1)
+    const args = [
+      '-hide_banner',
+      '-i', afterPath,
+      '-i', beforePath,
+      '-lavfi', '[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist][ref]ssim',
+      '-f', 'null', '-'
+    ];
+    try {
+      console.log('[ssim] ffmpeg args', args.join(' '));
+      const proc = spawn('ffmpeg', args, { encoding: 'utf8' });
+      let stderr = '';
+      let stdout = '';
+      proc.stderr.on('data', (data) => { stderr += data.toString(); });
+      proc.stdout.on('data', (data) => { stdout += data.toString(); });
+      proc.on('close', (code) => {
+        console.log('[ssim] ffmpeg status', { status: code, stderr_head: stderr.split(/\r?\n/).slice(0, 5) });
+        const text = stderr + stdout;
+        const lines = text.split(/\r?\n/).filter(Boolean);
+        let all = null;
+        for (const line of lines) {
+          const m = line.match(/All\s*:\s*([0-9]+\.?[0-9]*)/i);
+          if (m) {
+            all = Number(m[1]);
+          }
+        }
+        resolve(isNaN(all) ? null : all);
+      });
+      proc.on('error', () => resolve(null));
+    } catch (e) {
+      resolve(null);
     }
-    return isNaN(all) ? null : all;
-  } catch (e) {
-    return null;
-  }
+  });
 }
 
 function computeVMAF(beforePath, afterPath) {
-  const stamp = Date.now();
-  const tmpJsonRel = path.join('uploads', `vmaf_${stamp}.json`).replace(/\\/g, '/');
-  const tmpJsonAbs = path.join(__dirname, tmpJsonRel);
-  const lavfi = `[0:v][1:v]scale2ref=flags=bicubic[dist][ref];` +
-                `[dist]format=pix_fmts=yuv420p[distf];` +
-                `[ref]format=pix_fmts=yuv420p[reff];` +
-                `[distf][reff]libvmaf=log_fmt=json:log_path=${tmpJsonRel}`;
-  const args = [
-    '-hide_banner',
-    '-i', afterPath,
-    '-i', beforePath,
-    '-lavfi', lavfi,
-    '-f', 'null', '-'
-  ];
-  try {
+  return new Promise((resolve) => {
+    const stamp = Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    const tmpJsonRel = path.join('uploads', `vmaf_${stamp}.json`).replace(/\\/g, '/');
+    const tmpJsonAbs = path.join(__dirname, tmpJsonRel);
+    const lavfi = `[0:v][1:v]scale2ref=flags=bicubic[dist][ref];` +
+                  `[dist]format=pix_fmts=yuv420p[distf];` +
+                  `[ref]format=pix_fmts=yuv420p[reff];` +
+                  `[distf][reff]libvmaf=log_fmt=json:log_path=${tmpJsonRel}:n_threads=4`;
+    const args = [
+      '-hide_banner',
+      '-i', afterPath,
+      '-i', beforePath,
+      '-lavfi', lavfi,
+      '-f', 'null', '-'
+    ];
+
     const t0 = Date.now();
     console.log('[vmaf] compute start', { beforePath, afterPath, log_path: tmpJsonRel });
     console.log('[vmaf] ffmpeg args', args.join(' '));
-    const proc1 = spawnSync('ffmpeg', args, { encoding: 'utf8', cwd: __dirname });
-    console.log('[vmaf] ffmpeg status', { status: proc1.status, error: proc1.error ? String(proc1.error) : null, stderr_head: (proc1.stderr || '').split(/\r?\n/).slice(0, 5) });
-    const existsAbs = fs.existsSync(tmpJsonAbs);
-    console.log('[vmaf] log exist', { tmpJsonAbs, existsAbs, cost_ms: Date.now() - t0 });
-    if (existsAbs) {
-      const j = JSON.parse(fs.readFileSync(tmpJsonAbs, 'utf8'));
-      // Prefer pooled_metrics.mean.vmaf if present
-      const pooled = j?.pooled_metrics || j?.pooled_metrics?.vmaf;
-      let mean = null;
-      if (j?.pooled_metrics?.vmaf?.mean) {
-        mean = Number(j.pooled_metrics.vmaf.mean);
-      } else if (j?.pooled_metrics?.mean) {
-        mean = Number(j.pooled_metrics.mean.vmaf ?? j.pooled_metrics.mean.VMAF);
-      } else if (Array.isArray(j?.frames)) {
-        const vals = j.frames.map(f => Number(f.metrics?.vmaf)).filter(v => !isNaN(v));
-        if (vals.length) mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+
+    const proc = spawn('ffmpeg', args, { cwd: __dirname });
+    let stderr = '';
+    proc.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    proc.on('close', (code) => {
+      console.log('[vmaf] ffmpeg status', { status: code, stderr_head: stderr.split(/\r?\n/).slice(0, 5) });
+      const existsAbs = fs.existsSync(tmpJsonAbs);
+      console.log('[vmaf] log exist', { tmpJsonAbs, existsAbs, cost_ms: Date.now() - t0 });
+
+      if (existsAbs) {
+        try {
+          const j = JSON.parse(fs.readFileSync(tmpJsonAbs, 'utf8'));
+          const pooled = j?.pooled_metrics || j?.pooled_metrics?.vmaf;
+          let mean = null;
+          if (j?.pooled_metrics?.vmaf?.mean) {
+            mean = Number(j.pooled_metrics.vmaf.mean);
+          } else if (j?.pooled_metrics?.mean) {
+            mean = Number(j.pooled_metrics.mean.vmaf ?? j.pooled_metrics.mean.VMAF);
+          } else if (Array.isArray(j?.frames)) {
+            const vals = j.frames.map(f => Number(f.metrics?.vmaf)).filter(v => !isNaN(v));
+            if (vals.length) mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+          }
+          try { fs.unlinkSync(tmpJsonAbs); } catch (_) {}
+          console.log('[vmaf] parsed result', { pooled: !!pooled, frames: Array.isArray(j?.frames) ? j.frames.length : 0, mean });
+          resolve(isNaN(mean) ? null : mean);
+        } catch (e) {
+          try { fs.unlinkSync(tmpJsonAbs); } catch (_) {}
+          resolve(null);
+        }
+      } else {
+        // Fallback: parse console "VMAF score:" if any
+        const m = stderr.match(/VMAF\s*score\s*:\s*([0-9]+\.?[0-9]*)/i);
+        const val = m ? Number(m[1]) : null;
+        console.log('[vmaf] fallback parsed from stderr', { matched: !!m, value: val });
+        resolve(isNaN(val) ? null : val);
       }
-      try { fs.unlinkSync(tmpJsonAbs); } catch (_) {}
-      console.log('[vmaf] parsed result', { pooled: !!pooled, frames: Array.isArray(j?.frames) ? j.frames.length : 0, mean });
-      return isNaN(mean) ? null : mean;
-    }
-    return null;
-  } catch (e) {
-    try { if (fs.existsSync(tmpJsonAbs)) fs.unlinkSync(tmpJsonAbs); } catch (_) {}
-    // Fallback: parse console "VMAF score:" if any
-    try {
-      const args2 = [
-        '-hide_banner', '-i', afterPath, '-i', beforePath,
-        '-lavfi', `[0:v][1:v]scale2ref=flags=bicubic[dist][ref];[dist]format=pix_fmts=yuv420p[distf];[ref]format=pix_fmts=yuv420p[reff];[distf][reff]libvmaf`,
-        '-f', 'null', '-'
-      ];
-      console.log('[vmaf] fallback run', args2.join(' '));
-      const proc2 = spawnSync('ffmpeg', args2, { encoding: 'utf8', cwd: __dirname });
-      console.log('[vmaf] fallback status', { status: proc2.status, error: proc2.error ? String(proc2.error) : null, stderr_head: (proc2.stderr || '').split(/\r?\n/).slice(0, 5) });
-      const text = (proc2.stderr || '') + (proc2.stdout || '');
-      const m = text.match(/VMAF\s*score\s*:\s*([0-9]+\.?[0-9]*)/i);
-      const val = m ? Number(m[1]) : null;
-      console.log('[vmaf] fallback parsed', { matched: !!m, value: val });
-      if (m) return val;
-    } catch (_) {}
-    return null;
-  }
+    });
+
+    proc.on('error', (err) => {
+      console.log('[vmaf] process error', err);
+      try { if (fs.existsSync(tmpJsonAbs)) fs.unlinkSync(tmpJsonAbs); } catch (_) {}
+      resolve(null);
+    });
+  });
 }
 
 function normalizeQuality(vmaf, psnr) {
@@ -382,9 +404,12 @@ app.post('/evaluate', upload.fields([
 
     let psnr = null, vmaf = null, ssim = null;
     if (mode !== 'bitrate') {
-      psnr = computePSNR(beforePath, afterPath);
-      vmaf = computeVMAF(beforePath, afterPath);
-      ssim = computeSSIM(beforePath, afterPath);
+      // 并行执行 PSNR、VMAF、SSIM 计算，大幅提升评估速度
+      [psnr, vmaf, ssim] = await Promise.all([
+        computePSNR(beforePath, afterPath),
+        computeVMAF(beforePath, afterPath),
+        computeSSIM(beforePath, afterPath)
+      ]);
     }
 
     const qualityScore = normalizeQuality(vmaf, psnr);
@@ -457,7 +482,7 @@ app.post('/evaluate/vmaf', upload.fields([
     if (!before || !after) return res.status(400).json({ error: '必须上传导出前与导出后视频' });
     const beforePath = before.path;
     const afterPath = after.path;
-    const vmaf = computeVMAF(beforePath, afterPath);
+    const vmaf = await computeVMAF(beforePath, afterPath);
     try { fs.unlinkSync(beforePath); } catch (_) {}
     try { fs.unlinkSync(afterPath); } catch (_) {}
     return res.json({ metrics: { vmaf } });
@@ -476,7 +501,7 @@ app.post('/evaluate/psnr', upload.fields([
     if (!before || !after) return res.status(400).json({ error: '必须上传导出前与导出后视频' });
     const beforePath = before.path;
     const afterPath = after.path;
-    const psnr = computePSNR(beforePath, afterPath);
+    const psnr = await computePSNR(beforePath, afterPath);
     try { fs.unlinkSync(beforePath); } catch (_) {}
     try { fs.unlinkSync(afterPath); } catch (_) {}
     return res.json({ metrics: { psnr_db: psnr } });
@@ -495,7 +520,7 @@ app.post('/evaluate/ssim', upload.fields([
     if (!before || !after) return res.status(400).json({ error: '必须上传导出前与导出后视频' });
     const beforePath = before.path;
     const afterPath = after.path;
-    const ssim = computeSSIM(beforePath, afterPath);
+    const ssim = await computeSSIM(beforePath, afterPath);
     try { fs.unlinkSync(beforePath); } catch (_) {}
     try { fs.unlinkSync(afterPath); } catch (_) {}
     return res.json({ metrics: { ssim } });
