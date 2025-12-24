@@ -60,6 +60,58 @@ export default function Automation() {
   const [csvModalVisible, setCsvModalVisible] = useState(false);
   const [csvFilename, setCsvFilename] = useState<string>('');
   const [evalConcurrency, setEvalConcurrency] = useState<number>(2);
+  const [bgTaskId, setBgTaskId] = useState<string | null>(null);
+  const [bgTaskStatus, setBgTaskStatus] = useState<any>(null);
+  const [bgTaskPolling, setBgTaskPolling] = useState(false);
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [historyTaskId, setHistoryTaskId] = useState('');
+  const [historyTaskResult, setHistoryTaskResult] = useState<any>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [serverTaskHistory, setServerTaskHistory] = useState<Array<{ id: string; status: string; createdAt: string; encoder: string; taskCount: number; exported: number; evaluated: number; csvUrl?: string; error?: string }>>([]);
+  const [historyListLoading, setHistoryListLoading] = useState(false);
+
+  // 从后端加载历史任务列表
+  const loadServerTaskHistory = async () => {
+    setHistoryListLoading(true);
+    try {
+      const resp = await (await import('@/lib/api')).getMatrixTaskList(50);
+      if (resp.status === 'success' && resp.tasks) {
+        setServerTaskHistory(resp.tasks);
+      }
+    } catch (e) {
+      console.warn('[history] 加载历史任务失败', e);
+    } finally {
+      setHistoryListLoading(false);
+    }
+  };
+
+  // 打开历史弹窗时加载列表
+  useEffect(() => {
+    if (historyModalVisible) {
+      loadServerTaskHistory();
+    }
+  }, [historyModalVisible]);
+
+  // 轮询后台任务状态
+  useEffect(() => {
+    if (!bgTaskId || !bgTaskPolling) return;
+    const poll = async () => {
+      try {
+        const resp = await (await import('@/lib/api')).getMatrixTaskStatus(bgTaskId);
+        if (resp.status === 'success' && resp.task) {
+          setBgTaskStatus(resp.task);
+          if (resp.task.status === 'completed' || resp.task.status === 'failed') {
+            setBgTaskPolling(false);
+          }
+        }
+      } catch (e) {
+        console.warn('[bg-task] poll error', e);
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 3000); // 每3秒轮询一次
+    return () => clearInterval(interval);
+  }, [bgTaskId, bgTaskPolling]);
 
   const automationUploadProps = {
     multiple: false,
@@ -867,6 +919,14 @@ export default function Automation() {
                       content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
                       csvUrl: csvFullUrl || undefined
                     });
+                    // 记录到历史
+                    await (await import('@/lib/api')).recordFrontendTask({
+                      encoder: matrixEncoder,
+                      taskCount: latestJobs.length,
+                      evaluated: jobCount,
+                      csvUrl: csvFullUrl || undefined,
+                      taskType: 'frontend-matrix'
+                    });
                     message.success('已推送到飞书');
                   } catch (feishuErr) {
                     console.warn('[feishu] 推送失败', feishuErr);
@@ -878,6 +938,50 @@ export default function Automation() {
                 }
               }}>矩阵评估</Button>
               )}
+              <Button type="default" onClick={async () => {
+                try {
+                  if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
+                  const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
+                  const resp = await (await import('@/lib/api')).submitMatrixTask({
+                    file: inputFile,
+                    config: {
+                      serverIp,
+                      serverPort,
+                      encoder: matrixEncoder,
+                      nvencCodec,
+                      presets: matrixPresets,
+                      bitrates: matrixBitrates,
+                      maxrates: matrixMaxrates,
+                      bufsizes: matrixBufsizes,
+                      rcMode: matrixRcMode,
+                      cqValues: matrixCqValues,
+                      qpValues: matrixQpValues,
+                      temporalAQ: matrixTemporalAQ,
+                      spatialAQ: matrixSpatialAQ,
+                      profile: matrixProfile,
+                      tune: nvencTune,
+                      multipass: nvencMultipass,
+                      rcLookahead: nvencRcLookahead,
+                      minrate: nvencMinrate,
+                      evalConcurrency,
+                      feishuWebhook: FEISHU_WEBHOOK,
+                      inputDuration: inputDuration || undefined
+                    }
+                  });
+                  if (resp.status === 'success' && resp.task_id) {
+                    setBgTaskId(resp.task_id);
+                    setBgTaskStatus({ status: 'running', progress: { total: 0, exported: 0, evaluated: 0 } });
+                    setBgTaskPolling(true);
+                    message.success(`任务已提交到后台执行，任务ID: ${resp.task_id}`);
+                  } else {
+                    message.error(resp.message || '提交失败');
+                  }
+                } catch (e: any) {
+                  message.error(e.message || '提交失败');
+                }
+              }}>后台执行</Button>
+              <Button onClick={() => setHistoryModalVisible(true)}>历史任务查询</Button>
               {matrixJobs.some(j => j.downloadUrl) && matrixExported && !matrixAllChosen && (
               <Button loading={batchEvaluating} onClick={async () => {
                 try {
@@ -998,6 +1102,14 @@ export default function Automation() {
                       content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
                       csvUrl: csvFullUrl || undefined
                     });
+                    // 记录到历史
+                    await (await import('@/lib/api')).recordFrontendTask({
+                      encoder: matrixEncoder,
+                      taskCount: jobCount,
+                      evaluated: jobCount,
+                      csvUrl: csvFullUrl || undefined,
+                      taskType: 'frontend-batch'
+                    });
                     message.success('已推送到飞书');
                   } catch (feishuErr) {
                     console.warn('[feishu] 推送失败', feishuErr);
@@ -1022,6 +1134,219 @@ export default function Automation() {
               <input type="number" min={1} max={8} value={evalConcurrency} onChange={(e) => setEvalConcurrency(Math.max(1, Math.min(8, Number(e.target.value) || 2)))} className="border rounded px-2 py-1 w-24" />
               <Text type="secondary" className="ml-2">同时进行的评估任务数量</Text>
             </div>
+            {bgTaskId && bgTaskStatus && (
+            <div className="mt-3 p-3 border rounded bg-blue-50">
+              <div className="flex justify-between items-center mb-2">
+                <Text strong>后台任务进度</Text>
+                <Text type="secondary" className="text-xs">{bgTaskId}</Text>
+              </div>
+              <div className="flex gap-4">
+                <div>
+                  <Text type="secondary">状态：</Text>
+                  <Text className={bgTaskStatus.status === 'completed' ? 'text-green-600' : bgTaskStatus.status === 'failed' ? 'text-red-600' : 'text-blue-600'}>
+                    {bgTaskStatus.status === 'running' ? '执行中' : bgTaskStatus.status === 'completed' ? '已完成' : bgTaskStatus.status === 'failed' ? '失败' : bgTaskStatus.status}
+                  </Text>
+                </div>
+                <div>
+                  <Text type="secondary">总任务：</Text>
+                  <Text>{bgTaskStatus.progress?.total || 0}</Text>
+                </div>
+                <div>
+                  <Text type="secondary">已导出：</Text>
+                  <Text>{bgTaskStatus.progress?.exported || 0}</Text>
+                </div>
+                <div>
+                  <Text type="secondary">已评估：</Text>
+                  <Text>{bgTaskStatus.progress?.evaluated || 0}</Text>
+                </div>
+              </div>
+              {bgTaskStatus.status === 'completed' && bgTaskStatus.csvUrl && (
+                <div className="mt-2">
+                  <Text type="secondary">CSV下载：</Text>
+                  <a href={bgTaskStatus.csvUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">{bgTaskStatus.csvUrl}</a>
+                  <Button size="small" className="ml-2" onClick={() => window.open(bgTaskStatus.csvUrl, '_blank')}>下载CSV</Button>
+                </div>
+              )}
+              {bgTaskStatus.status === 'failed' && bgTaskStatus.error && (
+                <div className="mt-2">
+                  <Text type="danger">错误：{bgTaskStatus.error}</Text>
+                </div>
+              )}
+              <div className="mt-2 flex gap-2">
+                {!bgTaskPolling && bgTaskStatus.status === 'running' && (
+                  <Button size="small" onClick={() => setBgTaskPolling(true)}>恢复轮询</Button>
+                )}
+                {bgTaskPolling && (
+                  <Button size="small" onClick={() => setBgTaskPolling(false)}>暂停轮询</Button>
+                )}
+                <Button size="small" onClick={() => { setBgTaskId(null); setBgTaskStatus(null); setBgTaskPolling(false); }}>关闭</Button>
+              </div>
+            </div>
+            )}
+            <Modal
+              open={historyModalVisible}
+              title="历史任务查询"
+              onCancel={() => { setHistoryModalVisible(false); setHistoryTaskResult(null); setHistoryTaskId(''); }}
+              footer={null}
+              width={700}
+            >
+              <div className="mb-4">
+                <Text className="block mb-2">按任务ID查询：</Text>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={historyTaskId}
+                    onChange={(e) => setHistoryTaskId(e.target.value)}
+                    className="border rounded px-2 py-1 flex-1"
+                    placeholder="task_1234567890_abc123"
+                  />
+                  <Button
+                    type="primary"
+                    loading={historyLoading}
+                    onClick={async () => {
+                      if (!historyTaskId.trim()) {
+                        message.warning('请输入任务ID');
+                        return;
+                      }
+                      setHistoryLoading(true);
+                      try {
+                        const resp = await (await import('@/lib/api')).getMatrixTaskStatus(historyTaskId.trim());
+                        if (resp.status === 'success' && resp.task) {
+                          setHistoryTaskResult(resp.task);
+                        } else {
+                          message.error(resp.message || '任务不存在');
+                          setHistoryTaskResult(null);
+                        }
+                      } catch (e: any) {
+                        message.error(e.message || '查询失败');
+                        setHistoryTaskResult(null);
+                      } finally {
+                        setHistoryLoading(false);
+                      }
+                    }}
+                  >查询</Button>
+                </div>
+              </div>
+              {historyTaskResult && (
+                <div className="p-3 border rounded bg-gray-50 mb-4">
+                  <div className="mb-2">
+                    <Text strong>任务ID：</Text>
+                    <Text className="ml-2">{historyTaskResult.id}</Text>
+                  </div>
+                  <div className="mb-2">
+                    <Text strong>状态：</Text>
+                    <Text className={`ml-2 ${historyTaskResult.status === 'completed' ? 'text-green-600' : historyTaskResult.status === 'failed' ? 'text-red-600' : 'text-blue-600'}`}>
+                      {historyTaskResult.status === 'running' ? '执行中' : historyTaskResult.status === 'completed' ? '已完成' : historyTaskResult.status === 'failed' ? '失败' : historyTaskResult.status}
+                    </Text>
+                  </div>
+                  <div className="mb-2">
+                    <Text strong>创建时间：</Text>
+                    <Text className="ml-2">{historyTaskResult.createdAt || '-'}</Text>
+                  </div>
+                  <div className="mb-2">
+                    <Text strong>进度：</Text>
+                    <Text className="ml-2">
+                      总任务 {historyTaskResult.progress?.total || 0} / 已导出 {historyTaskResult.progress?.exported || 0} / 已评估 {historyTaskResult.progress?.evaluated || 0}
+                    </Text>
+                  </div>
+                  {historyTaskResult.csvUrl && (
+                    <div className="mb-2">
+                      <Text strong>CSV文件：</Text>
+                      <a href={historyTaskResult.csvUrl} target="_blank" rel="noopener noreferrer" className="ml-2 text-blue-600 hover:text-blue-800">{historyTaskResult.csvUrl}</a>
+                      <Button size="small" className="ml-2" onClick={() => window.open(historyTaskResult.csvUrl, '_blank')}>下载CSV</Button>
+                    </div>
+                  )}
+                  {historyTaskResult.error && (
+                    <div className="mb-2">
+                      <Text strong>错误信息：</Text>
+                      <Text type="danger" className="ml-2">{historyTaskResult.error}</Text>
+                    </div>
+                  )}
+                  {historyTaskResult.status === 'running' && (
+                    <Button
+                      size="small"
+                      className="mt-2"
+                      onClick={() => {
+                        setBgTaskId(historyTaskResult.id);
+                        setBgTaskStatus(historyTaskResult);
+                        setBgTaskPolling(true);
+                        setHistoryModalVisible(false);
+                        message.success('已添加到进度监控');
+                      }}
+                    >添加到进度监控</Button>
+                  )}
+                </div>
+              )}
+              <div className="border-t pt-4">
+                <div className="flex justify-between items-center mb-2">
+                  <Text strong>历史任务记录（最近50条）</Text>
+                  <Button size="small" loading={historyListLoading} onClick={loadServerTaskHistory}>刷新</Button>
+                </div>
+                {historyListLoading ? (
+                  <Text type="secondary">加载中...</Text>
+                ) : serverTaskHistory.length === 0 ? (
+                  <Text type="secondary">暂无历史记录</Text>
+                ) : (
+                  <div className="max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b bg-gray-100">
+                          <th className="text-left py-2 px-2">任务ID</th>
+                          <th className="text-left py-2 px-2">状态</th>
+                          <th className="text-left py-2 px-2">编码器</th>
+                          <th className="text-left py-2 px-2">进度</th>
+                          <th className="text-left py-2 px-2">创建时间</th>
+                          <th className="text-left py-2 px-2">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {serverTaskHistory.map((record, idx) => (
+                          <tr key={record.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <td className="py-2 px-2 font-mono text-xs truncate max-w-[150px]" title={record.id}>{record.id}</td>
+                            <td className="py-2 px-2">
+                              <span className={record.status === 'completed' ? 'text-green-600' : record.status === 'failed' ? 'text-red-600' : 'text-blue-600'}>
+                                {record.status === 'running' ? '执行中' : record.status === 'completed' ? '已完成' : record.status === 'failed' ? '失败' : record.status}
+                              </span>
+                            </td>
+                            <td className="py-2 px-2">{record.encoder}</td>
+                            <td className="py-2 px-2 text-xs">{record.evaluated}/{record.taskCount}</td>
+                            <td className="py-2 px-2 text-xs">{new Date(record.createdAt).toLocaleString()}</td>
+                            <td className="py-2 px-2 flex gap-1">
+                              <Button
+                                size="small"
+                                type="link"
+                                className="p-0"
+                                onClick={async () => {
+                                  setHistoryTaskId(record.id);
+                                  setHistoryLoading(true);
+                                  try {
+                                    const resp = await (await import('@/lib/api')).getMatrixTaskStatus(record.id);
+                                    if (resp.status === 'success' && resp.task) {
+                                      setHistoryTaskResult(resp.task);
+                                    } else {
+                                      message.error(resp.message || '任务不存在');
+                                      setHistoryTaskResult(null);
+                                    }
+                                  } catch (e: any) {
+                                    message.error(e.message || '查询失败');
+                                    setHistoryTaskResult(null);
+                                  } finally {
+                                    setHistoryLoading(false);
+                                  }
+                                }}
+                              >详情</Button>
+                              {record.csvUrl && (
+                                <Button size="small" type="link" className="p-0" onClick={() => window.open(record.csvUrl, '_blank')}>CSV</Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </Modal>
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={() => {
               try {
                 const header = [

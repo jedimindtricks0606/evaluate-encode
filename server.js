@@ -787,6 +787,444 @@ app.post('/automation/notify-feishu', express.json(), async (req, res) => {
   }
 });
 
+// 存储后台运行的矩阵评估任务（持久化到文件）
+const matrixTasks = new Map();
+const TASKS_FILE = path.join(BASE_DIR, 'matrix_tasks.json');
+
+// 从文件加载历史任务
+function loadTasksFromFile() {
+  try {
+    if (fs.existsSync(TASKS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
+      if (Array.isArray(data)) {
+        data.forEach(task => matrixTasks.set(task.id, task));
+        console.log(`[matrix-task] 已加载 ${data.length} 条历史任务记录`);
+      }
+    }
+  } catch (e) {
+    console.warn('[matrix-task] 加载历史任务失败:', e.message);
+  }
+}
+
+// 保存任务到文件
+function saveTasksToFile() {
+  try {
+    const tasks = Array.from(matrixTasks.values());
+    // 只保留最近100条记录，避免文件过大
+    const recentTasks = tasks
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 100);
+    fs.writeFileSync(TASKS_FILE, JSON.stringify(recentTasks, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[matrix-task] 保存任务失败:', e.message);
+  }
+}
+
+// 启动时加载历史任务
+loadTasksFromFile();
+
+// 矩阵评估后台任务接口
+app.post('/automation/matrix-task', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    const config = JSON.parse(req.body?.config || '{}');
+    const {
+      serverIp, serverPort, encoder, nvencCodec, presets, bitrates, maxrates, bufsizes,
+      rcMode, cqValues, qpValues, temporalAQ, spatialAQ, profile, tune, multipass,
+      rcLookahead, minrate, evalConcurrency, feishuWebhook, inputDuration
+    } = config;
+
+    if (!file) return res.status(400).json({ status: 'error', message: '缺少源视频文件' });
+    if (!serverIp) return res.status(400).json({ status: 'error', message: '缺少 FFmpeg 服务器地址' });
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const taskInfo = {
+      id: taskId,
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      config,
+      progress: { total: 0, exported: 0, evaluated: 0 },
+      results: [],
+      csvUrl: null,
+      error: null
+    };
+    matrixTasks.set(taskId, taskInfo);
+    saveTasksToFile(); // 持久化保存
+
+    // 立即返回任务ID，后台异步执行
+    res.json({ status: 'success', task_id: taskId, message: '任务已提交，后台执行中' });
+
+    // 异步执行矩阵评估
+    (async () => {
+      try {
+        const inputBuffer = fs.readFileSync(file.path);
+        const inputFilename = file.originalname || 'input.mp4';
+
+        // 1. 上传源视频到 FFmpeg 服务器
+        let jobId = null;
+        if (String(serverIp) === '0') {
+          const name = `${Date.now()}_${inputFilename}`;
+          const outPath = path.join(FFMPEG_DIR, name);
+          fs.writeFileSync(outPath, inputBuffer);
+          jobId = outPath;
+        } else {
+          const blob = new Blob([inputBuffer]);
+          const fd = new FormData();
+          fd.append('file', blob, inputFilename);
+          const upResp = await fetch(`http://${serverIp}:${serverPort}/upload_file`, { method: 'POST', body: fd });
+          const upData = await upResp.json().catch(() => ({}));
+          jobId = upData?.job_id || null;
+        }
+        if (!jobId) throw new Error('源视频上传失败');
+
+        // 2. 生成所有任务组合
+        const presetArr = (presets || '').split(',').map(s => s.trim()).filter(Boolean);
+        const bitrateArr = (bitrates || '').split(',').map(s => s.trim()).filter(Boolean);
+        const maxrateArr = (maxrates || '').split(',').map(s => s.trim()).filter(Boolean);
+        const bufsizeArr = (bufsizes || '').split(',').map(s => s.trim()).filter(Boolean);
+        const cqArr = (cqValues || '').split(',').map(s => s.trim()).filter(Boolean);
+        const qpArr = (qpValues || '').split(',').map(s => s.trim()).filter(Boolean);
+        const lookaheadArr = (rcLookahead || '').split(',').map(s => s.trim()).filter(Boolean);
+
+        const codec = encoder === 'x264' ? 'libx264' : (encoder === 'x265' ? 'libx265' : (nvencCodec === 'hevc' ? 'hevc_nvenc' : 'h264_nvenc'));
+        const hwaccel = encoder === 'nvenc' ? '-hwaccel cuda -hwaccel_output_format cuda ' : '';
+        const jobs = [];
+        const now = Date.now();
+
+        for (const preset of (presetArr.length ? presetArr : [''])) {
+          for (const b of (bitrateArr.length ? bitrateArr : [''])) {
+            for (const mr of (maxrateArr.length ? maxrateArr : [''])) {
+              for (const bs of (bufsizeArr.length ? bufsizeArr : [''])) {
+                for (const cq of (cqArr.length ? cqArr : [''])) {
+                  for (const qp of (qpArr.length ? qpArr : [''])) {
+                    for (const la of (lookaheadArr.length ? lookaheadArr : [''])) {
+                      const encTag = encoder === 'nvenc' ? (nvencCodec === 'hevc' ? 'nvhevc' : 'nvh264') : encoder;
+                      const nameParts = ['auto', encTag];
+                      if (preset) nameParts.push(`pre-${preset}`);
+                      nameParts.push(`rc-${rcMode || 'vbr'}`);
+                      if (b) nameParts.push(`b-${b}`);
+                      if (mr) nameParts.push(`max-${mr}`);
+                      if (bs) nameParts.push(`buf-${bs}`);
+                      if (cq) nameParts.push(`cq-${cq}`);
+                      if (qp) nameParts.push(`qp-${qp}`);
+                      if (tune) nameParts.push(`t-${tune}`);
+                      if (multipass) nameParts.push(`mp-${multipass}`);
+                      if (la && la !== '0') nameParts.push(`la-${la}`);
+                      if (minrate) nameParts.push(`min-${minrate}`);
+                      if (temporalAQ) nameParts.push('ta-1');
+                      if (spatialAQ) nameParts.push('sa-1');
+                      let profTag = profile;
+                      if (encoder === 'nvenc' && nvencCodec === 'hevc') {
+                        const p = String(profile || '').toLowerCase();
+                        if (p === 'high') profTag = 'main';
+                        else if (!['main', 'main10', 'rext'].includes(p)) profTag = 'main';
+                      }
+                      if (profTag) nameParts.push(`pr-${profTag}`);
+                      const jobIndex = jobs.length;
+                      const outfile = `${nameParts.join('_')}_${now}_${jobIndex}.mp4`;
+
+                      const paramsList = [];
+                      paramsList.push(`-c:v ${codec}`);
+                      if (preset) paramsList.push(`-preset ${preset}`);
+                      if (rcMode !== 'constqp') {
+                        if (rcMode) paramsList.push(`-rc:v ${rcMode}`);
+                        if (b) paramsList.push(`-b:v ${b}`);
+                        if (mr) paramsList.push(`-maxrate ${mr}`);
+                        if (bs) paramsList.push(`-bufsize ${bs}`);
+                        if (cq) paramsList.push(`-cq:v ${cq}`);
+                      } else {
+                        paramsList.push(`-rc constqp`);
+                        if (qp) paramsList.push(`-qp ${qp}`);
+                      }
+                      if (temporalAQ) paramsList.push(`-temporal-aq 1`);
+                      if (spatialAQ) paramsList.push(`-spatial-aq 1`);
+                      if (profTag) paramsList.push(`-profile:v ${profTag}`);
+                      paramsList.push(`-c:a copy`);
+                      if (encoder === 'nvenc') {
+                        if (tune) paramsList.push(`-tune ${tune}`);
+                        if (multipass) paramsList.push(`-multipass ${multipass}`);
+                        if (la && la !== '0') paramsList.push(`-rc-lookahead ${la}`);
+                        if (minrate) paramsList.push(`-minrate ${minrate}`);
+                      }
+                      const params = paramsList.join(' ');
+                      const command = `ffmpeg -y ${hwaccel}-i {input} ${params} {output}`;
+
+                      jobs.push({
+                        id: `${now}-${jobIndex}`,
+                        encoder,
+                        preset, b, mr, bs, cq, qp, la,
+                        command,
+                        outputFilename: outfile,
+                        downloadUrl: null,
+                        savedPath: null,
+                        exportDurationMs: null,
+                        evalResult: null
+                      });
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        taskInfo.progress.total = jobs.length;
+        console.log(`[matrix-task] ${taskId} 开始执行，共 ${jobs.length} 个任务`);
+
+        // 3. 顺序执行导出
+        for (const job of jobs) {
+          try {
+            let resp;
+            if (String(serverIp) === '0') {
+              const start = Date.now();
+              const outPath = path.join(FFMPEG_DIR, job.outputFilename);
+              const cmd = job.command.replace('{input}', `"${jobId}"`).replace('{output}', `"${outPath}"`);
+              const proc = spawnSync(cmd, { shell: true, encoding: 'utf8' });
+              const dur = Date.now() - start;
+              if (proc.status === 0) {
+                job.downloadUrl = `/files/ffmpeg/${job.outputFilename}`;
+                job.savedPath = outPath;
+                job.exportDurationMs = dur;
+              }
+            } else {
+              const fd = new FormData();
+              fd.append('job_id', String(jobId));
+              fd.append('command', job.command);
+              fd.append('output_filename', job.outputFilename);
+              const procResp = await fetch(`http://${serverIp}:${serverPort}/process`, { method: 'POST', body: fd });
+              resp = await procResp.json().catch(() => ({}));
+              if (resp?.status === 'success') {
+                const dp = resp.download_path || '';
+                job.downloadUrl = `http://${serverIp}:${serverPort}${dp}`;
+                job.exportDurationMs = resp.duration_ms || null;
+                // 下载到本地
+                try {
+                  const dlResp = await fetch(job.downloadUrl);
+                  if (dlResp.ok) {
+                    const buf = Buffer.from(await dlResp.arrayBuffer());
+                    const localPath = path.join(BASE_DIR, job.outputFilename);
+                    fs.writeFileSync(localPath, buf);
+                    job.savedPath = localPath;
+                  }
+                } catch (_) {}
+              }
+            }
+            if (job.savedPath) taskInfo.progress.exported++;
+          } catch (e) {
+            console.warn(`[matrix-task] 导出失败 ${job.id}:`, e.message);
+          }
+        }
+
+        console.log(`[matrix-task] ${taskId} 导出完成 ${taskInfo.progress.exported}/${jobs.length}`);
+
+        // 4. 并行评估
+        const concurrency = evalConcurrency || 2;
+        const inputFileForEval = path.join(BASE_DIR, `input_${taskId}.mp4`);
+        fs.writeFileSync(inputFileForEval, inputBuffer);
+
+        const evaluateJob = async (job) => {
+          if (!job.savedPath) return;
+          try {
+            const afterPath = job.savedPath;
+            const [psnr, vmaf, ssim] = await Promise.all([
+              computePSNR(inputFileForEval, afterPath),
+              computeVMAF(inputFileForEval, afterPath),
+              computeSSIM(inputFileForEval, afterPath)
+            ]);
+
+            const metaAfter = ffprobeJson(afterPath) || {};
+            metaAfter._filePath = afterPath;
+            const bitrateAfter = getBitrateBps(metaAfter);
+            const duration = getDurationSeconds(metaAfter) || inputDuration || 30;
+            const exportSec = job.exportDurationMs ? job.exportDurationMs / 1000 : duration;
+
+            const qualityScore = normalizeQuality(vmaf, psnr);
+            const bitrateScore = computeBitrateScore(bitrateAfter, bitrateAfter);
+            const speedScore = computeSpeedScore(duration, exportSec, 1.0);
+            const weights = { quality: 0.5, speed: 0.25, bitrate: 0.25 };
+            const finalScore = weights.quality * qualityScore + weights.speed * speedScore + weights.bitrate * bitrateScore;
+
+            job.evalResult = {
+              vmaf, psnr, ssim,
+              bitrate_after_kbps: Math.round(bitrateAfter / 1000),
+              final_score: Number(finalScore.toFixed(4))
+            };
+            taskInfo.progress.evaluated++;
+          } catch (e) {
+            console.warn(`[matrix-task] 评估失败 ${job.id}:`, e.message);
+          }
+        };
+
+        // 分批并行执行评估
+        for (let i = 0; i < jobs.length; i += concurrency) {
+          const batch = jobs.slice(i, i + concurrency);
+          await Promise.all(batch.map(evaluateJob));
+        }
+
+        console.log(`[matrix-task] ${taskId} 评估完成 ${taskInfo.progress.evaluated}/${jobs.length}`);
+
+        // 5. 生成 CSV
+        const header = ['encoder', 'preset', 'b_v', 'maxrate', 'bufsize', 'rc', 'cq', 'qp', 'output_file', 'overall', 'vmaf', 'psnr_db', 'ssim', 'bitrate_after_kbps', 'export_duration_seconds', 'ffmpeg_command'];
+        const rows = jobs.filter(j => j.evalResult).map(j => {
+          const v = [
+            j.encoder, j.preset || '', j.b || '', j.mr || '', j.bs || '', rcMode || 'vbr', j.cq || '', j.qp || '',
+            j.outputFilename,
+            j.evalResult?.final_score ?? '',
+            j.evalResult?.vmaf ?? '',
+            j.evalResult?.psnr ?? '',
+            j.evalResult?.ssim ?? '',
+            j.evalResult?.bitrate_after_kbps ?? '',
+            j.exportDurationMs ? (j.exportDurationMs / 1000).toFixed(2) : '',
+            j.command
+          ];
+          return v.map(s => {
+            const str = String(s ?? '');
+            if (str.includes(',') || str.includes('\n') || str.includes('"')) return '"' + str.replace(/"/g, '""') + '"';
+            return str;
+          }).join(',');
+        });
+        const csv = [header.join(','), ...rows].join('\n');
+        const csvFilename = `matrix_task_${taskId}.csv`;
+        const csvPath = path.join(BASE_DIR, csvFilename);
+        fs.writeFileSync(csvPath, csv, 'utf8');
+
+        const localIP = getLocalIP();
+        const port = process.env.PORT || 3000;
+        const csvFullUrl = `http://${localIP}:${port}/files/${csvFilename}`;
+        taskInfo.csvUrl = csvFullUrl;
+        taskInfo.results = []; // 不保存详细结果，减少存储空间
+        taskInfo.status = 'completed';
+        saveTasksToFile(); // 持久化保存
+
+        console.log(`[matrix-task] ${taskId} CSV 已生成: ${csvFullUrl}`);
+
+        // 6. 推送飞书
+        if (feishuWebhook) {
+          try {
+            const evaledCount = jobs.filter(j => j.evalResult).length;
+            const avgScore = evaledCount > 0
+              ? jobs.filter(j => j.evalResult).reduce((acc, j) => acc + (j.evalResult?.final_score || 0), 0) / evaledCount
+              : 0;
+
+            const payload = {
+              msg_type: 'post',
+              content: {
+                post: {
+                  zh_cn: {
+                    title: '矩阵评估任务完成',
+                    content: [
+                      [{ tag: 'text', text: `任务ID: ${taskId}` }],
+                      [{ tag: 'text', text: `共 ${evaledCount} 个任务完成评估，平均得分 ${(avgScore * 100).toFixed(2)} 分` }],
+                      [{ tag: 'text', text: 'CSV 下载链接：' }, { tag: 'a', text: csvFullUrl, href: csvFullUrl }]
+                    ]
+                  }
+                }
+              }
+            };
+            await fetch(feishuWebhook, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+            console.log(`[matrix-task] ${taskId} 飞书推送成功`);
+          } catch (e) {
+            console.warn(`[matrix-task] 飞书推送失败:`, e.message);
+          }
+        }
+
+        // 清理临时文件
+        try { fs.unlinkSync(file.path); } catch (_) {}
+        try { fs.unlinkSync(inputFileForEval); } catch (_) {}
+
+      } catch (e) {
+        taskInfo.status = 'failed';
+        taskInfo.error = e.message;
+        taskInfo.results = []; // 清空结果
+        saveTasksToFile(); // 持久化保存
+        console.error(`[matrix-task] ${taskId} 执行失败:`, e);
+
+        // 失败也推送飞书
+        if (config.feishuWebhook) {
+          try {
+            const payload = {
+              msg_type: 'post',
+              content: {
+                post: {
+                  zh_cn: {
+                    title: '矩阵评估任务失败',
+                    content: [[{ tag: 'text', text: `任务ID: ${taskId}\n错误: ${e.message}` }]]
+                  }
+                }
+              }
+            };
+            await fetch(config.feishuWebhook, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify(payload)
+            });
+          } catch (_) {}
+        }
+      }
+    })();
+
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '提交任务失败', detail: String(e?.message || e) });
+  }
+});
+
+// 查询任务状态
+app.get('/automation/matrix-task/:id', (req, res) => {
+  const taskId = req.params.id;
+  const task = matrixTasks.get(taskId);
+  if (!task) return res.status(404).json({ status: 'error', message: '任务不存在' });
+  return res.json({ status: 'success', task });
+});
+
+// 记录前台任务完成
+app.post('/automation/matrix-task-record', express.json(), (req, res) => {
+  try {
+    const { encoder, taskCount, evaluated, csvUrl, taskType } = req.body;
+    const taskId = `frontend_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const taskInfo = {
+      id: taskId,
+      status: 'completed',
+      createdAt: new Date().toISOString(),
+      config: { encoder },
+      progress: { total: taskCount || 0, exported: taskCount || 0, evaluated: evaluated || 0 },
+      results: [],
+      csvUrl: csvUrl || null,
+      error: null,
+      taskType: taskType || 'frontend' // 'frontend' 或 'backend'
+    };
+    matrixTasks.set(taskId, taskInfo);
+    saveTasksToFile();
+    return res.json({ status: 'success', task_id: taskId });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '记录失败', detail: String(e?.message || e) });
+  }
+});
+
+// 获取历史任务列表
+app.get('/automation/matrix-tasks', (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+  const tasks = Array.from(matrixTasks.values())
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit)
+    .map(t => ({
+      id: t.id,
+      status: t.status,
+      createdAt: t.createdAt,
+      encoder: t.config?.encoder || '',
+      taskCount: t.progress?.total || 0,
+      exported: t.progress?.exported || 0,
+      evaluated: t.progress?.evaluated || 0,
+      csvUrl: t.csvUrl,
+      error: t.error,
+      taskType: t.taskType || 'backend' // 'frontend' 或 'backend'
+    }));
+  return res.json({ status: 'success', tasks });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);

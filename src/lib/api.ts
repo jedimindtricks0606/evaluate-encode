@@ -175,6 +175,80 @@ export async function automationSaveUpload(options: {
   return data as any;
 }
 
+export async function submitMatrixTask(options: {
+  file: File;
+  config: {
+    serverIp: string;
+    serverPort: number;
+    encoder: string;
+    nvencCodec?: string;
+    presets?: string;
+    bitrates?: string;
+    maxrates?: string;
+    bufsizes?: string;
+    rcMode?: string;
+    cqValues?: string;
+    qpValues?: string;
+    temporalAQ?: boolean;
+    spatialAQ?: boolean;
+    profile?: string;
+    tune?: string;
+    multipass?: string;
+    rcLookahead?: string;
+    minrate?: string;
+    evalConcurrency?: number;
+    feishuWebhook?: string;
+    inputDuration?: number;
+  };
+}): Promise<{ status: string; task_id?: string; message?: string }> {
+  const fd = new FormData();
+  fd.append('file', options.file);
+  fd.append('config', JSON.stringify(options.config));
+  const resp = await fetch(`${API_BASE}/automation/matrix-task`, { method: 'POST', body: fd });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(String((data as any)?.message || '提交任务失败'));
+  return data as any;
+}
+
+export async function getMatrixTaskStatus(taskId: string): Promise<{ status: string; task?: any; message?: string }> {
+  const resp = await fetch(`${API_BASE}/automation/matrix-task/${taskId}`);
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}
+
+export async function getMatrixTaskList(limit?: number): Promise<{ status: string; tasks?: Array<{
+  id: string;
+  status: string;
+  createdAt: string;
+  encoder: string;
+  taskCount: number;
+  exported: number;
+  evaluated: number;
+  csvUrl?: string;
+  error?: string;
+  taskType?: string;
+}>; message?: string }> {
+  const resp = await fetch(`${API_BASE}/automation/matrix-tasks?limit=${limit || 50}`);
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}
+
+export async function recordFrontendTask(options: {
+  encoder: string;
+  taskCount: number;
+  evaluated: number;
+  csvUrl?: string;
+  taskType?: string;
+}): Promise<{ status: string; task_id?: string; message?: string }> {
+  const resp = await fetch(`${API_BASE}/automation/matrix-task-record`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options)
+  });
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}
+
 export async function notifyFeishu(options: {
   webhookUrl: string;
   title?: string;
