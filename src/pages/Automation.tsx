@@ -28,6 +28,16 @@ export default function Automation() {
   } = useAutomationStore();
   const [pingLoading, setPingLoading] = useState(false);
   const [serverHealth, setServerHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
+  const [serverStatus, setServerStatus] = useState<{
+    cpu_percent: number;
+    memory: { percent: number };
+    gpus: Array<{
+      name: string;
+      utilization_percent: number;
+      memory_used_mb: number;
+      memory_total_mb: number;
+    }>;
+  } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [inputPreviewUrl, setInputPreviewUrl] = useState<string | null>(null);
@@ -136,6 +146,34 @@ export default function Automation() {
     const interval = setInterval(poll, 3000); // 每3秒轮询一次
     return () => clearInterval(interval);
   }, [bgTaskPolling]);
+
+  // 周期性获取 FFmpeg 服务器状态
+  useEffect(() => {
+    // 只要有 IP 和端口就开始定时获取状态
+    if (!serverIp || !serverPort) {
+      setServerStatus(null);
+      return;
+    }
+    const fetchStatus = async () => {
+      try {
+        const url = serverIp === '0'
+          ? 'http://localhost:5000/status'
+          : `http://${serverIp}:${serverPort}/status`;
+        const resp = await fetch(url, { method: 'GET' });
+        if (resp.ok) {
+          const data = await resp.json();
+          setServerStatus(data);
+        } else {
+          setServerStatus(null);
+        }
+      } catch (e) {
+        setServerStatus(null);
+      }
+    };
+    fetchStatus();
+    const interval = setInterval(fetchStatus, 5000); // 每5秒获取一次
+    return () => clearInterval(interval);
+  }, [serverIp, serverPort]);
 
   const automationUploadProps = {
     multiple: false,
@@ -299,8 +337,93 @@ export default function Automation() {
                 <Text className="block mb-1">端口</Text>
                 <input type="number" step="1" value={serverPort} onChange={(e) => setServerPort(Number(e.target.value))} className="border rounded px-2 py-1 w-full" placeholder="5000" />
               </Col>
-              
+
             </Row>
+            {/* FFmpeg 服务器状态 */}
+            {serverStatus && (
+              <div className="p-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg border shadow-sm">
+                <div className="flex flex-wrap gap-6 items-center">
+                  {/* CPU */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 text-sm">CPU</span>
+                    <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          serverStatus.cpu_percent < 50 ? 'bg-green-500' :
+                          serverStatus.cpu_percent < 80 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.min(serverStatus.cpu_percent, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      serverStatus.cpu_percent < 50 ? 'text-green-600' :
+                      serverStatus.cpu_percent < 80 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>{serverStatus.cpu_percent.toFixed(1)}%</span>
+                  </div>
+                  {/* 内存 */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 text-sm">内存</span>
+                    <div className="w-20 h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          serverStatus.memory.percent < 60 ? 'bg-green-500' :
+                          serverStatus.memory.percent < 85 ? 'bg-yellow-500' : 'bg-red-500'
+                        }`}
+                        style={{ width: `${Math.min(serverStatus.memory.percent, 100)}%` }}
+                      />
+                    </div>
+                    <span className={`text-sm font-semibold ${
+                      serverStatus.memory.percent < 60 ? 'text-green-600' :
+                      serverStatus.memory.percent < 85 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>{serverStatus.memory.percent.toFixed(1)}%</span>
+                  </div>
+                  {/* GPU */}
+                  {serverStatus.gpus?.map((gpu, idx) => {
+                    const memPercent = gpu.memory_used_mb / gpu.memory_total_mb * 100;
+                    return (
+                      <div key={idx} className="flex items-center gap-3 pl-3 border-l border-gray-300">
+                        <span className="text-gray-600 text-sm font-medium">{gpu.name}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500 text-xs">利用率</span>
+                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                gpu.utilization_percent < 50 ? 'bg-blue-500' :
+                                gpu.utilization_percent < 80 ? 'bg-purple-500' : 'bg-pink-500'
+                              }`}
+                              style={{ width: `${Math.min(gpu.utilization_percent, 100)}%` }}
+                            />
+                          </div>
+                          <span className={`text-sm font-semibold ${
+                            gpu.utilization_percent < 50 ? 'text-blue-600' :
+                            gpu.utilization_percent < 80 ? 'text-purple-600' : 'text-pink-600'
+                          }`}>{gpu.utilization_percent.toFixed(0)}%</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-500 text-xs">显存</span>
+                          <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                memPercent < 60 ? 'bg-cyan-500' :
+                                memPercent < 85 ? 'bg-orange-500' : 'bg-red-500'
+                              }`}
+                              style={{ width: `${Math.min(memPercent, 100)}%` }}
+                            />
+                          </div>
+                          <span className={`text-xs ${
+                            memPercent < 60 ? 'text-cyan-600' :
+                            memPercent < 85 ? 'text-orange-600' : 'text-red-600'
+                          }`}>
+                            <span className="font-semibold">{(gpu.memory_used_mb / 1024).toFixed(1)}</span>
+                            <span className="text-gray-400">/{(gpu.memory_total_mb / 1024).toFixed(1)}G</span>
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div>
               <Text className="block mb-1">上传输入视频</Text>
               {!inputFile && (
