@@ -77,6 +77,7 @@ export default function Automation() {
       queuePosition: number;
       config: { encoder: string; nvencCodec: string; presets: string; bitrates: string; rcMode: string; cqValues: string; qpValues: string; skipVmaf: boolean };
     }>;
+    isFrontendRunning?: boolean;
   } | null>(null);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [historyTaskId, setHistoryTaskId] = useState('');
@@ -112,14 +113,18 @@ export default function Automation() {
     if (!bgTaskPolling) return;
     const poll = async () => {
       try {
-        const resp = await (await import('@/lib/api')).getTaskQueueStatus();
-        if (resp.status === 'success') {
+        const [queueResp, lockResp] = await Promise.all([
+          (await import('@/lib/api')).getTaskQueueStatus(),
+          (await import('@/lib/api')).frontendLock('check')
+        ]);
+        if (queueResp.status === 'success') {
           setTaskQueueStatus({
-            running: resp.running || [],
-            pending: resp.pending || []
+            running: queueResp.running || [],
+            pending: queueResp.pending || [],
+            isFrontendRunning: lockResp.isFrontendRunning || false
           });
-          // 如果没有运行中和等待中的任务，停止轮询
-          if (resp.running.length === 0 && resp.pending.length === 0) {
+          // 如果没有运行中和等待中的任务，且没有前台执行，停止轮询
+          if (queueResp.running.length === 0 && queueResp.pending.length === 0 && !lockResp.isFrontendRunning) {
             setBgTaskPolling(false);
           }
         }
@@ -517,6 +522,14 @@ export default function Automation() {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
                   if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
+                  // 获取前台执行锁
+                  const lockResp = await (await import('@/lib/api')).frontendLock('acquire');
+                  if (lockResp.status === 'blocked') {
+                    message.warning(lockResp.message || '当前有任务正在执行，请等待完成');
+                    return;
+                  }
+                  // 开启轮询以显示前台执行状态
+                  setBgTaskPolling(true);
                   setMatrixExported(true);
                   setMatrixAllChosen(false);
                   setMatrixSubmitting(true);
@@ -674,6 +687,8 @@ export default function Automation() {
                   message.error('提交失败');
                 } finally {
                   setMatrixSubmitting(false);
+                  // 释放前台执行锁
+                  await (await import('@/lib/api')).frontendLock('release');
                 }
               }}>矩阵导出</Button>
               {!matrixExported && (
@@ -681,6 +696,14 @@ export default function Automation() {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
                   if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
+                  // 获取前台执行锁
+                  const lockResp = await (await import('@/lib/api')).frontendLock('acquire');
+                  if (lockResp.status === 'blocked') {
+                    message.warning(lockResp.message || '当前有任务正在执行，请等待完成');
+                    return;
+                  }
+                  // 开启轮询以显示前台执行状态
+                  setBgTaskPolling(true);
                   setMatrixAllChosen(true);
                   setMatrixExported(false);
                   setMatrixAllRunning(true);
@@ -954,6 +977,8 @@ export default function Automation() {
                   message.error('矩阵评估失败');
                 } finally {
                   setMatrixAllRunning(false);
+                  // 释放前台执行锁
+                  await (await import('@/lib/api')).frontendLock('release');
                 }
               }}>矩阵评估</Button>
               )}
@@ -961,6 +986,11 @@ export default function Automation() {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
                   if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
+                  // 检查是否有前台任务正在执行
+                  const lockCheck = await (await import('@/lib/api')).frontendLock('check');
+                  if (lockCheck.isFrontendRunning) {
+                    message.info('当前有前台任务正在执行，后台任务将排队等待');
+                  }
                   const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
                   const resp = await (await import('@/lib/api')).submitMatrixTask({
                     file: inputFile,
@@ -1004,6 +1034,14 @@ export default function Automation() {
               <Button loading={batchEvaluating} onClick={async () => {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
+                  // 获取前台执行锁
+                  const lockResp = await (await import('@/lib/api')).frontendLock('acquire');
+                  if (lockResp.status === 'blocked') {
+                    message.warning(lockResp.message || '当前有任务正在执行，请等待完成');
+                    return;
+                  }
+                  // 开启轮询以显示前台执行状态
+                  setBgTaskPolling(true);
                   setBatchEvaluating(true);
                   // 过滤出需要评估的任务
                   const jobsToEval = matrixJobs.filter(j => !j.evalSavedJsonPath && !j.evalSummary && j.downloadUrl);
@@ -1012,6 +1050,8 @@ export default function Automation() {
                   if (jobsToEval.length === 0) {
                     message.warning('没有需要评估的任务');
                     setBatchEvaluating(false);
+                    // 释放前台执行锁
+                    await (await import('@/lib/api')).frontendLock('release');
                     return;
                   }
                   // 并行评估，限制并发数
@@ -1136,6 +1176,8 @@ export default function Automation() {
                   message.error('批量评估失败');
                 } finally {
                   setBatchEvaluating(false);
+                  // 释放前台执行锁
+                  await (await import('@/lib/api')).frontendLock('release');
                 }
               }}>批量评估</Button>
               )}
@@ -1162,10 +1204,10 @@ export default function Automation() {
               </div>
             </div>
             {/* 任务队列状态 */}
-            {(taskQueueStatus?.running?.length > 0 || taskQueueStatus?.pending?.length > 0 || bgTaskPolling) && (
+            {(taskQueueStatus?.running?.length > 0 || taskQueueStatus?.pending?.length > 0 || taskQueueStatus?.isFrontendRunning || bgTaskPolling) && (
             <div className="mt-3 p-3 border rounded bg-blue-50">
               <div className="flex justify-between items-center mb-2">
-                <Text strong>后台任务队列</Text>
+                <Text strong>任务队列</Text>
                 <div className="flex gap-2">
                   {bgTaskPolling ? (
                     <Button size="small" onClick={() => setBgTaskPolling(false)}>暂停刷新</Button>
@@ -1194,11 +1236,21 @@ export default function Automation() {
                 </div>
               </div>
 
+              {/* 前台执行状态 */}
+              {taskQueueStatus?.isFrontendRunning && (
+                <div className="mb-2 p-2 bg-green-50 rounded border border-green-200">
+                  <div className="flex justify-between items-center">
+                    <Text className="text-green-600 font-medium">前台执行中</Text>
+                    <Text type="secondary" className="text-xs">前台任务正在执行，后台任务将排队等待</Text>
+                  </div>
+                </div>
+              )}
+
               {/* 执行中的任务 */}
               {taskQueueStatus?.running?.map((task, idx) => (
                 <div key={task.id} className="mb-2 p-2 bg-white rounded border border-blue-200">
                   <div className="flex justify-between items-center">
-                    <Text className="text-blue-600 font-medium">执行中</Text>
+                    <Text className="text-blue-600 font-medium">后台执行中</Text>
                     <div className="flex items-center gap-2">
                       <Text type="secondary" className="text-xs">{task.id}</Text>
                       <Button
@@ -1283,7 +1335,8 @@ export default function Automation() {
               title="历史任务查询"
               onCancel={() => { setHistoryModalVisible(false); setHistoryTaskResult(null); setHistoryTaskId(''); }}
               footer={null}
-              width={700}
+              width={1000}
+              style={{ top: 20 }}
             >
               <div className="mb-4">
                 <Text className="block mb-2">按任务ID查询：</Text>

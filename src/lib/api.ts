@@ -320,3 +320,19 @@ export async function notifyFeishu(options: {
   if (!resp.ok) throw new Error(String((data as any)?.message || '飞书推送失败'));
   return data as any;
 }
+
+export async function frontendLock(action: 'acquire' | 'release' | 'check'): Promise<{
+  status: string;
+  message?: string;
+  isBackendRunning?: boolean;
+  isFrontendRunning?: boolean;
+  queueLength?: number;
+}> {
+  const resp = await fetch(`${API_BASE}/automation/frontend-lock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action })
+  });
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}

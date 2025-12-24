@@ -804,6 +804,9 @@ const TASKS_FILE = path.join(BASE_DIR, 'matrix_tasks.json');
 // 任务队列
 const taskQueue = [];
 let isProcessingQueue = false;
+// 前台执行锁：当前台执行时设置，后台队列会等待
+let isFrontendExecuting = false;
+let frontendExecutionTimeout = null;
 
 // 从文件加载历史任务
 function loadTasksFromFile() {
@@ -1171,11 +1174,21 @@ async function executeMatrixTask(taskJson) {
 async function processTaskQueue() {
   if (isProcessingQueue) return;
   if (taskQueue.length === 0) return;
+  // 如果前台正在执行，等待前台完成（前台释放锁时会重新触发队列处理）
+  if (isFrontendExecuting) {
+    console.log(`[task-queue] 前台正在执行，等待前台完成后再处理队列`);
+    return;
+  }
 
   isProcessingQueue = true;
   console.log(`[task-queue] 开始处理队列，当前队列长度: ${taskQueue.length}`);
 
   while (taskQueue.length > 0) {
+    // 再次检查前台锁（防止在处理过程中前台开始执行）
+    if (isFrontendExecuting) {
+      console.log(`[task-queue] 前台开始执行，暂停队列处理`);
+      break;
+    }
     const taskJson = taskQueue.shift();
     console.log(`[task-queue] 开始执行任务: ${taskJson.id}，剩余队列: ${taskQueue.length}`);
     await executeMatrixTask(taskJson);
@@ -1394,6 +1407,66 @@ app.post('/automation/matrix-task-record', express.json(), (req, res) => {
     return res.json({ status: 'success', task_id: taskId });
   } catch (e) {
     return res.status(500).json({ status: 'error', message: '记录失败', detail: String(e?.message || e) });
+  }
+});
+
+// 前台执行锁：获取或设置锁状态
+app.post('/automation/frontend-lock', express.json(), (req, res) => {
+  const { action } = req.body; // 'acquire', 'release', 'check'
+
+  if (action === 'acquire') {
+    // 检查是否有后台任务正在执行
+    if (isProcessingQueue) {
+      return res.json({
+        status: 'blocked',
+        message: '当前有后台任务正在执行，请等待完成或取消后再执行前台任务',
+        isBackendRunning: true,
+        isFrontendRunning: false
+      });
+    }
+    // 检查是否有其他前台任务正在执行
+    if (isFrontendExecuting) {
+      return res.json({
+        status: 'blocked',
+        message: '当前有其他前台任务正在执行，请等待完成',
+        isBackendRunning: false,
+        isFrontendRunning: true
+      });
+    }
+    // 获取锁
+    isFrontendExecuting = true;
+    // 设置超时（30分钟后自动释放锁，防止前端崩溃导致死锁）
+    if (frontendExecutionTimeout) clearTimeout(frontendExecutionTimeout);
+    frontendExecutionTimeout = setTimeout(() => {
+      isFrontendExecuting = false;
+      console.log('[frontend-lock] 前台锁超时自动释放');
+    }, 30 * 60 * 1000);
+    console.log('[frontend-lock] 前台锁已获取');
+    return res.json({ status: 'success', message: '锁已获取' });
+
+  } else if (action === 'release') {
+    // 释放锁
+    isFrontendExecuting = false;
+    if (frontendExecutionTimeout) {
+      clearTimeout(frontendExecutionTimeout);
+      frontendExecutionTimeout = null;
+    }
+    console.log('[frontend-lock] 前台锁已释放');
+    // 尝试启动队列处理（如果有等待的后台任务）
+    setImmediate(() => processTaskQueue());
+    return res.json({ status: 'success', message: '锁已释放' });
+
+  } else if (action === 'check') {
+    // 检查锁状态
+    return res.json({
+      status: 'success',
+      isBackendRunning: isProcessingQueue,
+      isFrontendRunning: isFrontendExecuting,
+      queueLength: taskQueue.length
+    });
+
+  } else {
+    return res.status(400).json({ status: 'error', message: '无效的 action' });
   }
 });
 
