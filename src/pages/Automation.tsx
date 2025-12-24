@@ -175,7 +175,7 @@ export default function Automation() {
       }
     };
     fetchStatus();
-    const interval = setInterval(fetchStatus, 5000); // 每5秒获取一次
+    const interval = setInterval(fetchStatus, 2000); // 抓取状态时间间隔
     return () => clearInterval(interval);
   }, [serverIp, serverPort]);
 
@@ -1165,16 +1165,29 @@ export default function Automation() {
                       skipVmaf: qualityMetric === 'psnr'
                     }
                   });
-                  // 提交完成，清除 submitting 状态
-                  setTaskQueueStatus(prev => ({
-                    running: prev?.running || [],
-                    pending: prev?.pending || [],
-                    isFrontendRunning: prev?.isFrontendRunning,
-                    submitting: null
-                  }));
                   if (resp.status === 'success' && resp.task_id) {
+                    // 提交成功，立即获取最新队列状态
+                    try {
+                      const [queueResp, lockResp] = await Promise.all([
+                        (await import('@/lib/api')).getTaskQueueStatus(),
+                        (await import('@/lib/api')).frontendLock('check')
+                      ]);
+                      if (queueResp.status === 'success') {
+                        setTaskQueueStatus({
+                          running: queueResp.running || [],
+                          pending: queueResp.pending || [],
+                          isFrontendRunning: lockResp.isFrontendRunning || false,
+                          submitting: null
+                        });
+                      }
+                    } catch (e) {
+                      // 获取失败，至少清除 submitting 状态
+                      setTaskQueueStatus(prev => prev ? { ...prev, submitting: null } : null);
+                    }
                     message.success(resp.message || `任务已提交到后台执行，任务ID: ${resp.task_id}`);
                   } else {
+                    // 提交失败，清除 submitting 状态
+                    setTaskQueueStatus(prev => prev ? { ...prev, submitting: null } : null);
                     message.error(resp.message || '提交失败');
                   }
                 } catch (e: any) {
