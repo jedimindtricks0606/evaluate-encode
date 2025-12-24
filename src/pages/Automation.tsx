@@ -88,6 +88,7 @@ export default function Automation() {
       config: { encoder: string; nvencCodec: string; presets: string; bitrates: string; rcMode: string; cqValues: string; qpValues: string; skipVmaf: boolean };
     }>;
     isFrontendRunning?: boolean;
+    submitting?: boolean; // 正在提交任务
   } | null>(null);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [historyTaskId, setHistoryTaskId] = useState('');
@@ -1105,7 +1106,7 @@ export default function Automation() {
                 }
               }}>矩阵评估</Button>
               )}
-              <Button type="default" onClick={async () => {
+              <Button type="default" loading={taskQueueStatus?.submitting} onClick={async () => {
                 try {
                   if (!inputFile) { message.warning('请先上传输入视频'); return; }
                   if (!serverIp || !serverPort) { message.warning('请填写服务器 IP 与端口'); return; }
@@ -1114,6 +1115,14 @@ export default function Automation() {
                   if (lockCheck.isFrontendRunning) {
                     message.info('当前有前台任务正在执行，后台任务将排队等待');
                   }
+                  // 立即显示"正在提交"状态
+                  setBgTaskPolling(true);
+                  setTaskQueueStatus(prev => ({
+                    running: prev?.running || [],
+                    pending: prev?.pending || [],
+                    isFrontendRunning: prev?.isFrontendRunning,
+                    submitting: true
+                  }));
                   const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
                   const resp = await (await import('@/lib/api')).submitMatrixTask({
                     file: inputFile,
@@ -1142,13 +1151,21 @@ export default function Automation() {
                       skipVmaf: qualityMetric === 'psnr'
                     }
                   });
+                  // 提交完成，清除 submitting 状态
+                  setTaskQueueStatus(prev => ({
+                    running: prev?.running || [],
+                    pending: prev?.pending || [],
+                    isFrontendRunning: prev?.isFrontendRunning,
+                    submitting: false
+                  }));
                   if (resp.status === 'success' && resp.task_id) {
-                    setBgTaskPolling(true);
                     message.success(resp.message || `任务已提交到后台执行，任务ID: ${resp.task_id}`);
                   } else {
                     message.error(resp.message || '提交失败');
                   }
                 } catch (e: any) {
+                  // 提交失败，清除 submitting 状态
+                  setTaskQueueStatus(prev => prev ? { ...prev, submitting: false } : null);
                   message.error(e.message || '提交失败');
                 }
               }}>后台执行</Button>
@@ -1327,7 +1344,7 @@ export default function Automation() {
               </div>
             </div>
             {/* 任务队列状态 */}
-            {(taskQueueStatus?.running?.length > 0 || taskQueueStatus?.pending?.length > 0 || taskQueueStatus?.isFrontendRunning || bgTaskPolling) && (
+            {(taskQueueStatus?.running?.length > 0 || taskQueueStatus?.pending?.length > 0 || taskQueueStatus?.isFrontendRunning || taskQueueStatus?.submitting || bgTaskPolling) && (
             <div className="mt-3 p-3 border rounded bg-blue-50">
               <div className="flex justify-between items-center mb-2">
                 <Text strong>任务队列</Text>
@@ -1358,6 +1375,17 @@ export default function Automation() {
                   <Button size="small" onClick={() => { setTaskQueueStatus(null); setBgTaskPolling(false); }}>关闭</Button>
                 </div>
               </div>
+
+              {/* 正在提交任务 */}
+              {taskQueueStatus?.submitting && (
+                <div className="mb-2 p-2 bg-yellow-50 rounded border border-yellow-200">
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-yellow-500 border-t-transparent rounded-full animate-spin" />
+                    <Text className="text-yellow-600 font-medium">正在提交任务...</Text>
+                    <Text type="secondary" className="text-xs">正在上传视频文件到服务器</Text>
+                  </div>
+                </div>
+              )}
 
               {/* 前台执行状态 */}
               {taskQueueStatus?.isFrontendRunning && (
