@@ -60,9 +60,24 @@ export default function Automation() {
   const [csvModalVisible, setCsvModalVisible] = useState(false);
   const [csvFilename, setCsvFilename] = useState<string>('');
   const [evalConcurrency, setEvalConcurrency] = useState<number>(2);
-  const [bgTaskId, setBgTaskId] = useState<string | null>(null);
-  const [bgTaskStatus, setBgTaskStatus] = useState<any>(null);
+  const [qualityMetric, setQualityMetric] = useState<'vmaf' | 'psnr'>('vmaf');
   const [bgTaskPolling, setBgTaskPolling] = useState(false);
+  const [taskQueueStatus, setTaskQueueStatus] = useState<{
+    running: Array<{
+      id: string;
+      status: string;
+      createdAt: string;
+      progress: { total: number; exported: number; evaluated: number };
+      config: { encoder: string; nvencCodec: string; presets: string; bitrates: string; rcMode: string; cqValues: string; qpValues: string; skipVmaf: boolean };
+    }>;
+    pending: Array<{
+      id: string;
+      status: string;
+      createdAt: string;
+      queuePosition: number;
+      config: { encoder: string; nvencCodec: string; presets: string; bitrates: string; rcMode: string; cqValues: string; qpValues: string; skipVmaf: boolean };
+    }>;
+  } | null>(null);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [historyTaskId, setHistoryTaskId] = useState('');
   const [historyTaskResult, setHistoryTaskResult] = useState<any>(null);
@@ -92,26 +107,30 @@ export default function Automation() {
     }
   }, [historyModalVisible]);
 
-  // 轮询后台任务状态
+  // 轮询任务队列状态
   useEffect(() => {
-    if (!bgTaskId || !bgTaskPolling) return;
+    if (!bgTaskPolling) return;
     const poll = async () => {
       try {
-        const resp = await (await import('@/lib/api')).getMatrixTaskStatus(bgTaskId);
-        if (resp.status === 'success' && resp.task) {
-          setBgTaskStatus(resp.task);
-          if (resp.task.status === 'completed' || resp.task.status === 'failed') {
+        const resp = await (await import('@/lib/api')).getTaskQueueStatus();
+        if (resp.status === 'success') {
+          setTaskQueueStatus({
+            running: resp.running || [],
+            pending: resp.pending || []
+          });
+          // 如果没有运行中和等待中的任务，停止轮询
+          if (resp.running.length === 0 && resp.pending.length === 0) {
             setBgTaskPolling(false);
           }
         }
       } catch (e) {
-        console.warn('[bg-task] poll error', e);
+        console.warn('[task-queue] poll error', e);
       }
     };
     poll();
     const interval = setInterval(poll, 3000); // 每3秒轮询一次
     return () => clearInterval(interval);
-  }, [bgTaskId, bgTaskPolling]);
+  }, [bgTaskPolling]);
 
   const automationUploadProps = {
     multiple: false,
@@ -836,7 +855,7 @@ export default function Automation() {
                       const expSecVal = ex.durMs ? (ex.durMs / 1000) : (inputDuration || 30);
                       const benchSecVal = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSecVal;
                       const tgtRTF = (inputDuration || 30) / Math.max(benchSecVal, 1e-6);
-                      const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, targetRTF: tgtRTF, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const evalResp3 = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile3, exportTimeSeconds: expSecVal, targetRTF: tgtRTF, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 }, skipVmaf: qualityMetric === 'psnr' });
                       const saveJson3 = await (await import('@/lib/api')).automationSaveJson({ data: evalResp3, localSaveDir: '', filename: `${ex.name.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary3 = {
                         overall: Number(evalResp3?.final_score ?? 0),
@@ -966,14 +985,13 @@ export default function Automation() {
                       minrate: nvencMinrate,
                       evalConcurrency,
                       feishuWebhook: FEISHU_WEBHOOK,
-                      inputDuration: inputDuration || undefined
+                      inputDuration: inputDuration || undefined,
+                      skipVmaf: qualityMetric === 'psnr'
                     }
                   });
                   if (resp.status === 'success' && resp.task_id) {
-                    setBgTaskId(resp.task_id);
-                    setBgTaskStatus({ status: 'running', progress: { total: 0, exported: 0, evaluated: 0 } });
                     setBgTaskPolling(true);
-                    message.success(`任务已提交到后台执行，任务ID: ${resp.task_id}`);
+                    message.success(resp.message || `任务已提交到后台执行，任务ID: ${resp.task_id}`);
                   } else {
                     message.error(resp.message || '提交失败');
                   }
@@ -1020,7 +1038,7 @@ export default function Automation() {
                       const expSec = job.exportDurationMs ? (job.exportDurationMs / 1000) : (inputDuration || 30);
                       const benchSec = benchmarkDurationMs != null ? (Number(benchmarkDurationMs) / 1000) : expSec;
                       const tgtRTF2 = (inputDuration || 30) / Math.max(benchSec, 1e-6);
-                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, targetRTF: tgtRTF2, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 } });
+                      const evalResp = await (await import('@/lib/api')).evaluateQuality({ before: inputFile, after: afterFile, exportTimeSeconds: expSec, targetRTF: tgtRTF2, weights: { quality: 0.5, speed: 0.25, bitrate: 0.25 }, skipVmaf: qualityMetric === 'psnr' });
                       console.log('[batch-eval] evalResp', job.id, evalResp);
                       const saveJson = await (await import('@/lib/api')).automationSaveJson({ data: evalResp, localSaveDir: '', filename: `${job.outputFilename.replace(/\.mp4$/,'')}_evaluation.json` });
                       const summary = {
@@ -1129,58 +1147,135 @@ export default function Automation() {
               }}>导出评估CSV</Button>
               )}
             </div>
-            <div className="mt-3">
-              <Text className="block mb-1">评估并发数（1-8）</Text>
-              <input type="number" min={1} max={8} value={evalConcurrency} onChange={(e) => setEvalConcurrency(Math.max(1, Math.min(8, Number(e.target.value) || 2)))} className="border rounded px-2 py-1 w-24" />
-              <Text type="secondary" className="ml-2">同时进行的评估任务数量</Text>
+            <div className="mt-3 flex gap-6">
+              <div>
+                <Text className="block mb-1">评估并发数（1-8）</Text>
+                <input type="number" min={1} max={8} value={evalConcurrency} onChange={(e) => setEvalConcurrency(Math.max(1, Math.min(8, Number(e.target.value) || 2)))} className="border rounded px-2 py-1 w-24" />
+                <Text type="secondary" className="ml-2">同时进行的评估任务数量</Text>
+              </div>
+              <div>
+                <Text className="block mb-1">画质评估标准</Text>
+                <select value={qualityMetric} onChange={(e) => setQualityMetric(e.target.value as 'vmaf' | 'psnr')} className="border rounded px-2 py-1">
+                  <option value="vmaf">VMAF（含 PSNR + SSIM）</option>
+                  <option value="psnr">仅 PSNR + SSIM（跳过 VMAF）</option>
+                </select>
+              </div>
             </div>
-            {bgTaskId && bgTaskStatus && (
+            {/* 任务队列状态 */}
+            {(taskQueueStatus?.running?.length > 0 || taskQueueStatus?.pending?.length > 0 || bgTaskPolling) && (
             <div className="mt-3 p-3 border rounded bg-blue-50">
               <div className="flex justify-between items-center mb-2">
-                <Text strong>后台任务进度</Text>
-                <Text type="secondary" className="text-xs">{bgTaskId}</Text>
+                <Text strong>后台任务队列</Text>
+                <div className="flex gap-2">
+                  {bgTaskPolling ? (
+                    <Button size="small" onClick={() => setBgTaskPolling(false)}>暂停刷新</Button>
+                  ) : (
+                    <Button size="small" onClick={() => setBgTaskPolling(true)}>开始刷新</Button>
+                  )}
+                  {(taskQueueStatus?.running?.length > 0 || taskQueueStatus?.pending?.length > 0) && (
+                    <Button
+                      size="small"
+                      danger
+                      onClick={async () => {
+                        try {
+                          const resp = await (await import('@/lib/api')).clearTaskQueue();
+                          if (resp.status === 'success') {
+                            message.success(resp.message || '队列已清空');
+                          } else {
+                            message.error(resp.message || '清空失败');
+                          }
+                        } catch (e: any) {
+                          message.error(e.message || '清空失败');
+                        }
+                      }}
+                    >清空队列</Button>
+                  )}
+                  <Button size="small" onClick={() => { setTaskQueueStatus(null); setBgTaskPolling(false); }}>关闭</Button>
+                </div>
               </div>
-              <div className="flex gap-4">
-                <div>
-                  <Text type="secondary">状态：</Text>
-                  <Text className={bgTaskStatus.status === 'completed' ? 'text-green-600' : bgTaskStatus.status === 'failed' ? 'text-red-600' : 'text-blue-600'}>
-                    {bgTaskStatus.status === 'running' ? '执行中' : bgTaskStatus.status === 'completed' ? '已完成' : bgTaskStatus.status === 'failed' ? '失败' : bgTaskStatus.status}
-                  </Text>
+
+              {/* 执行中的任务 */}
+              {taskQueueStatus?.running?.map((task, idx) => (
+                <div key={task.id} className="mb-2 p-2 bg-white rounded border border-blue-200">
+                  <div className="flex justify-between items-center">
+                    <Text className="text-blue-600 font-medium">执行中</Text>
+                    <div className="flex items-center gap-2">
+                      <Text type="secondary" className="text-xs">{task.id}</Text>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={async () => {
+                          try {
+                            const resp = await (await import('@/lib/api')).cancelMatrixTask(task.id);
+                            if (resp.status === 'success') {
+                              message.success('任务已取消');
+                            } else {
+                              message.error(resp.message || '取消失败');
+                            }
+                          } catch (e: any) {
+                            message.error(e.message || '取消失败');
+                          }
+                        }}
+                      >取消</Button>
+                    </div>
+                  </div>
+                  <div className="flex gap-4 mt-1 flex-wrap">
+                    <Text type="secondary">进度：<Text>{task.progress?.exported || 0}/{task.progress?.total || 0} 导出，{task.progress?.evaluated || 0} 评估</Text></Text>
+                  </div>
+                  <div className="flex gap-3 mt-1 flex-wrap text-xs text-gray-500">
+                    <span>编码器: {task.config?.encoder}{task.config?.nvencCodec ? `(${task.config.nvencCodec})` : ''}</span>
+                    {task.config?.presets && <span>presets: {task.config.presets}</span>}
+                    {task.config?.rcMode && <span>rc: {task.config.rcMode}</span>}
+                    {task.config?.cqValues && <span>cq: {task.config.cqValues}</span>}
+                    {task.config?.qpValues && <span>qp: {task.config.qpValues}</span>}
+                    {task.config?.bitrates && task.config.bitrates !== '0' && <span>bitrate: {task.config.bitrates}</span>}
+                    {task.config?.skipVmaf && <span className="text-orange-500">跳过VMAF</span>}
+                  </div>
                 </div>
-                <div>
-                  <Text type="secondary">总任务：</Text>
-                  <Text>{bgTaskStatus.progress?.total || 0}</Text>
+              ))}
+
+              {/* 等待中的任务 */}
+              {taskQueueStatus?.pending?.map((task, idx) => (
+                <div key={task.id} className="mb-2 p-2 bg-gray-50 rounded border border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <Text className="text-gray-500">等待中（队列位置：{idx + 1}）</Text>
+                    <div className="flex items-center gap-2">
+                      <Text type="secondary" className="text-xs">{task.id}</Text>
+                      <Button
+                        size="small"
+                        danger
+                        onClick={async () => {
+                          try {
+                            const resp = await (await import('@/lib/api')).cancelMatrixTask(task.id);
+                            if (resp.status === 'success') {
+                              message.success('任务已取消');
+                            } else {
+                              message.error(resp.message || '取消失败');
+                            }
+                          } catch (e: any) {
+                            message.error(e.message || '取消失败');
+                          }
+                        }}
+                      >取消</Button>
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-1 flex-wrap text-xs text-gray-500">
+                    <span>编码器: {task.config?.encoder}{task.config?.nvencCodec ? `(${task.config.nvencCodec})` : ''}</span>
+                    {task.config?.presets && <span>presets: {task.config.presets}</span>}
+                    {task.config?.rcMode && <span>rc: {task.config.rcMode}</span>}
+                    {task.config?.cqValues && <span>cq: {task.config.cqValues}</span>}
+                    {task.config?.qpValues && <span>qp: {task.config.qpValues}</span>}
+                    {task.config?.bitrates && task.config.bitrates !== '0' && <span>bitrate: {task.config.bitrates}</span>}
+                    {task.config?.skipVmaf && <span className="text-orange-500">跳过VMAF</span>}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">创建时间：{new Date(task.createdAt).toLocaleString()}</div>
                 </div>
-                <div>
-                  <Text type="secondary">已导出：</Text>
-                  <Text>{bgTaskStatus.progress?.exported || 0}</Text>
-                </div>
-                <div>
-                  <Text type="secondary">已评估：</Text>
-                  <Text>{bgTaskStatus.progress?.evaluated || 0}</Text>
-                </div>
-              </div>
-              {bgTaskStatus.status === 'completed' && bgTaskStatus.csvUrl && (
-                <div className="mt-2">
-                  <Text type="secondary">CSV下载：</Text>
-                  <a href={bgTaskStatus.csvUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800">{bgTaskStatus.csvUrl}</a>
-                  <Button size="small" className="ml-2" onClick={() => window.open(bgTaskStatus.csvUrl, '_blank')}>下载CSV</Button>
-                </div>
+              ))}
+
+              {/* 队列为空 */}
+              {taskQueueStatus && taskQueueStatus.running?.length === 0 && taskQueueStatus.pending?.length === 0 && (
+                <div className="text-center text-gray-400 py-2">当前没有后台任务</div>
               )}
-              {bgTaskStatus.status === 'failed' && bgTaskStatus.error && (
-                <div className="mt-2">
-                  <Text type="danger">错误：{bgTaskStatus.error}</Text>
-                </div>
-              )}
-              <div className="mt-2 flex gap-2">
-                {!bgTaskPolling && bgTaskStatus.status === 'running' && (
-                  <Button size="small" onClick={() => setBgTaskPolling(true)}>恢复轮询</Button>
-                )}
-                {bgTaskPolling && (
-                  <Button size="small" onClick={() => setBgTaskPolling(false)}>暂停轮询</Button>
-                )}
-                <Button size="small" onClick={() => { setBgTaskId(null); setBgTaskStatus(null); setBgTaskPolling(false); }}>关闭</Button>
-              </div>
             </div>
             )}
             <Modal
@@ -1262,18 +1357,16 @@ export default function Automation() {
                       <Text type="danger" className="ml-2">{historyTaskResult.error}</Text>
                     </div>
                   )}
-                  {historyTaskResult.status === 'running' && (
+                  {(historyTaskResult.status === 'running' || historyTaskResult.status === 'pending') && (
                     <Button
                       size="small"
                       className="mt-2"
                       onClick={() => {
-                        setBgTaskId(historyTaskResult.id);
-                        setBgTaskStatus(historyTaskResult);
                         setBgTaskPolling(true);
                         setHistoryModalVisible(false);
-                        message.success('已添加到进度监控');
+                        message.success('已开启队列监控');
                       }}
-                    >添加到进度监控</Button>
+                    >开启队列监控</Button>
                   )}
                 </div>
               )}

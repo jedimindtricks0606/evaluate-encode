@@ -12,6 +12,7 @@ export async function evaluateQuality(options: {
   targetBitrateKbps?: number | null;
   targetRTF?: number | null;
   mode?: 'quality' | 'bitrate';
+  skipVmaf?: boolean;
 }): Promise<any> {
   const fd = new FormData();
   fd.append('beforeVideo', options.before);
@@ -23,6 +24,7 @@ export async function evaluateQuality(options: {
   if (options.targetBitrateKbps != null) fd.append('targetBitrateKbps', String(options.targetBitrateKbps));
   if (options.targetRTF != null) fd.append('targetRTF', String(options.targetRTF));
   if (options.mode) fd.append('mode', options.mode);
+  if (options.skipVmaf) fd.append('skipVmaf', '1');
   const resp = await fetch(`${API_BASE}/evaluate`, { method: 'POST', body: fd });
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: 'unknown' }));
@@ -199,6 +201,7 @@ export async function submitMatrixTask(options: {
     evalConcurrency?: number;
     feishuWebhook?: string;
     inputDuration?: number;
+    skipVmaf?: boolean;
   };
 }): Promise<{ status: string; task_id?: string; message?: string }> {
   const fd = new FormData();
@@ -212,6 +215,53 @@ export async function submitMatrixTask(options: {
 
 export async function getMatrixTaskStatus(taskId: string): Promise<{ status: string; task?: any; message?: string }> {
   const resp = await fetch(`${API_BASE}/automation/matrix-task/${taskId}`);
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}
+
+export interface TaskConfig {
+  encoder: string;
+  nvencCodec: string;
+  presets: string;
+  bitrates: string;
+  rcMode: string;
+  cqValues: string;
+  qpValues: string;
+  skipVmaf: boolean;
+}
+
+export async function getTaskQueueStatus(): Promise<{
+  status: string;
+  isProcessing: boolean;
+  queueLength: number;
+  running: Array<{
+    id: string;
+    status: string;
+    createdAt: string;
+    progress: { total: number; exported: number; evaluated: number };
+    config: TaskConfig;
+  }>;
+  pending: Array<{
+    id: string;
+    status: string;
+    createdAt: string;
+    queuePosition: number;
+    config: TaskConfig;
+  }>;
+}> {
+  const resp = await fetch(`${API_BASE}/automation/task-queue`);
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}
+
+export async function cancelMatrixTask(taskId: string): Promise<{ status: string; message?: string }> {
+  const resp = await fetch(`${API_BASE}/automation/matrix-task/${taskId}/cancel`, { method: 'POST' });
+  const data = await resp.json().catch(() => ({}));
+  return data as any;
+}
+
+export async function clearTaskQueue(): Promise<{ status: string; message?: string; cancelledCount?: number }> {
+  const resp = await fetch(`${API_BASE}/automation/task-queue/clear`, { method: 'POST' });
   const data = await resp.json().catch(() => ({}));
   return data as any;
 }
