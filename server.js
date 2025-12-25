@@ -947,7 +947,14 @@ async function executeMatrixTask(taskJson) {
                   jobs.push({
                     id: `${now}-${jobIndex}`,
                     encoder,
+                    nvencCodec: nvencCodec || '',
                     preset, b, mr, bs, cq, qp, la,
+                    temporalAQ: temporalAQ ? 1 : 0,
+                    spatialAQ: spatialAQ ? 1 : 0,
+                    profile: profTag || '',
+                    tune: tune || '',
+                    multipass: multipass || '',
+                    minrate: minrate || '',
                     command,
                     outputFilename: outfile,
                     downloadUrl: null,
@@ -1067,18 +1074,40 @@ async function executeMatrixTask(taskJson) {
     console.log(`[matrix-task] ${taskJson.id} 评估完成 ${taskInfo.progress.evaluated}/${jobs.length}`);
 
     // 5. 生成 CSV
-    const header = ['encoder', 'preset', 'b_v', 'maxrate', 'bufsize', 'rc', 'cq', 'qp', 'output_file', 'overall', 'vmaf', 'psnr_db', 'ssim', 'bitrate_after_kbps', 'export_duration_seconds', 'ffmpeg_command'];
+    const header = [
+      'encoder', 'nvenc_codec', 'preset', 'b_v', 'maxrate', 'bufsize', 'rc', 'cq', 'qp',
+      'temporal_aq', 'spatial_aq', 'profile', 'tune', 'multipass', 'rc_lookahead', 'minrate',
+      'output_file', 'overall', 'vmaf', 'psnr_db', 'ssim', 'bitrate_after_kbps',
+      'export_duration_seconds', 'download_url', 'saved_path', 'ffmpeg_command'
+    ];
     const rows = jobs.filter(j => j.evalResult).map(j => {
       const v = [
-        j.encoder, j.preset || '', j.b || '', j.mr || '', j.bs || '', rcMode || 'vbr', j.cq || '', j.qp || '',
-        j.outputFilename,
+        j.encoder || '',
+        j.nvencCodec || '',
+        j.preset || '',
+        j.b || '',
+        j.mr || '',
+        j.bs || '',
+        rcMode || 'vbr',
+        j.cq || '',
+        j.qp || '',
+        j.temporalAQ ?? '',
+        j.spatialAQ ?? '',
+        j.profile || '',
+        j.tune || '',
+        j.multipass || '',
+        j.la || '',
+        j.minrate || '',
+        j.outputFilename || '',
         j.evalResult?.final_score ?? '',
         j.evalResult?.vmaf ?? '',
         j.evalResult?.psnr ?? '',
         j.evalResult?.ssim ?? '',
         j.evalResult?.bitrate_after_kbps ?? '',
         j.exportDurationMs ? (j.exportDurationMs / 1000).toFixed(2) : '',
-        j.command
+        j.downloadUrl || '',
+        j.savedPath || '',
+        j.command || ''
       ];
       return v.map(s => {
         const str = String(s ?? '');

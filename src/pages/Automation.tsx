@@ -1030,7 +1030,10 @@ export default function Automation() {
                   // 自动生成 CSV 并推送到飞书
                   try {
                     const header = [
-                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
+                      'encoder','nvenc_codec','preset','b_v','maxrate','bufsize','rc','cq','qp',
+                      'temporal_aq','spatial_aq','profile','tune','multipass','rc_lookahead','minrate',
+                      'output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps',
+                      'export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
                     ];
                     // 需要从 store 获取最新的 matrixJobs
                     const latestJobs = useAutomationStore.getState().matrixJobs;
@@ -1038,7 +1041,8 @@ export default function Automation() {
                     const rows = evaledJobs.map(j => {
                       const p = j.params || {} as any;
                       const v = [
-                        j.encoder,
+                        j.encoder || '',
+                        String(p.nvenc_codec ?? ''),
                         String(p.preset ?? ''),
                         String(p.b ?? ''),
                         String(p.mr ?? ''),
@@ -1046,15 +1050,14 @@ export default function Automation() {
                         String(p.rc ?? 'vbr'),
                         String(p.cq ?? ''),
                         String(p.qp ?? ''),
-                        String((p.temporal_aq ?? 1)),
-                        String((p.spatial_aq ?? 1)),
+                        String(p.temporal_aq ?? ''),
+                        String(p.spatial_aq ?? ''),
                         String(p.profile ?? ''),
-                        String(p.nvenc_codec ?? ''),
                         String(p.tune ?? ''),
                         String(p.multipass ?? ''),
                         String(p.rc_lookahead ?? ''),
                         String(p.minrate ?? ''),
-                        j.outputFilename,
+                        j.outputFilename || '',
                         Number(j.evalSummary?.overall ?? 0).toFixed(4),
                         String(j.evalSummary?.vmaf ?? ''),
                         String(j.evalSummary?.psnr ?? ''),
@@ -1270,14 +1273,18 @@ export default function Automation() {
                   // 自动生成 CSV 并推送到飞书
                   try {
                     const header = [
-                      'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
+                      'encoder','nvenc_codec','preset','b_v','maxrate','bufsize','rc','cq','qp',
+                      'temporal_aq','spatial_aq','profile','tune','multipass','rc_lookahead','minrate',
+                      'output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps',
+                      'export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
                     ];
                     const latestJobs = useAutomationStore.getState().matrixJobs;
                     const evaledJobs = latestJobs.filter(j => j.evalSummary);
                     const rows = evaledJobs.map(j => {
                       const p = j.params || {} as any;
                       const v = [
-                        j.encoder,
+                        j.encoder || '',
+                        String(p.nvenc_codec ?? ''),
                         String(p.preset ?? ''),
                         String(p.b ?? ''),
                         String(p.mr ?? ''),
@@ -1285,15 +1292,14 @@ export default function Automation() {
                         String(p.rc ?? 'vbr'),
                         String(p.cq ?? ''),
                         String(p.qp ?? ''),
-                        String((p.temporal_aq ?? 1)),
-                        String((p.spatial_aq ?? 1)),
+                        String(p.temporal_aq ?? ''),
+                        String(p.spatial_aq ?? ''),
                         String(p.profile ?? ''),
-                        String(p.nvenc_codec ?? ''),
                         String(p.tune ?? ''),
                         String(p.multipass ?? ''),
                         String(p.rc_lookahead ?? ''),
                         String(p.minrate ?? ''),
-                        j.outputFilename,
+                        j.outputFilename || '',
                         Number(j.evalSummary?.overall ?? 0).toFixed(4),
                         String(j.evalSummary?.vmaf ?? ''),
                         String(j.evalSummary?.psnr ?? ''),
@@ -1685,12 +1691,16 @@ export default function Automation() {
             <Modal open={csvModalVisible} title="导出评估CSV" onCancel={() => setCsvModalVisible(false)} onOk={() => {
               try {
                 const header = [
-                  'encoder','preset','b_v','maxrate','bufsize','rc','cq','qp','temporal_aq','spatial_aq','profile','nvenc_codec','tune','multipass','rc_lookahead','minrate','output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps','export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
+                  'encoder','nvenc_codec','preset','b_v','maxrate','bufsize','rc','cq','qp',
+                  'temporal_aq','spatial_aq','profile','tune','multipass','rc_lookahead','minrate',
+                  'output_file','overall','vmaf','psnr_db','ssim','bitrate_after_kbps',
+                  'export_duration_seconds','download_url','saved_path','eval_json_url','ffmpeg_command'
                 ];
                 const rows = matrixJobs.filter(j => j.evalSummary).map(j => {
                   const p = j.params || {} as any;
                   const v = [
-                    j.encoder,
+                    j.encoder || '',
+                    String(p.nvenc_codec ?? ''),
                     String(p.preset ?? ''),
                     String(p.b ?? ''),
                     String(p.mr ?? ''),
@@ -1698,15 +1708,14 @@ export default function Automation() {
                     String(p.rc ?? 'vbr'),
                     String(p.cq ?? ''),
                     String(p.qp ?? ''),
-                    String((p.temporal_aq ?? 1)),
-                    String((p.spatial_aq ?? 1)),
+                    String(p.temporal_aq ?? ''),
+                    String(p.spatial_aq ?? ''),
                     String(p.profile ?? ''),
-                    String(p.nvenc_codec ?? ''),
                     String(p.tune ?? ''),
                     String(p.multipass ?? ''),
                     String(p.rc_lookahead ?? ''),
                     String(p.minrate ?? ''),
-                    j.outputFilename,
+                    j.outputFilename || '',
                     Number(j.evalSummary?.overall ?? 0).toFixed(4),
                     String(j.evalSummary?.vmaf ?? ''),
                     String(j.evalSummary?.psnr ?? ''),
