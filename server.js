@@ -1138,6 +1138,25 @@ async function executeMatrixTask(taskJson) {
           ? jobs.filter(j => j.evalResult).reduce((acc, j) => acc + (j.evalResult?.final_score || 0), 0) / evaledCount
           : 0;
 
+        // 构建参数组合信息
+        const paramInfo = [];
+        paramInfo.push(`编码器: ${encoder}${nvencCodec ? `(${nvencCodec})` : ''}`);
+        if (presets) paramInfo.push(`presets: ${presets}`);
+        if (rcMode) paramInfo.push(`rc: ${rcMode}`);
+        if (cqValues) paramInfo.push(`cq: ${cqValues}`);
+        if (qpValues) paramInfo.push(`qp: ${qpValues}`);
+        if (bitrates && bitrates !== '0') paramInfo.push(`bitrate: ${bitrates}`);
+        if (maxrates) paramInfo.push(`maxrate: ${maxrates}`);
+        if (bufsizes) paramInfo.push(`bufsize: ${bufsizes}`);
+        if (temporalAQ) paramInfo.push('temporal-aq: 1');
+        if (spatialAQ) paramInfo.push('spatial-aq: 1');
+        if (profile) paramInfo.push(`profile: ${profile}`);
+        if (tune) paramInfo.push(`tune: ${tune}`);
+        if (multipass) paramInfo.push(`multipass: ${multipass}`);
+        if (rcLookahead) paramInfo.push(`rc-lookahead: ${rcLookahead}`);
+        if (minrate) paramInfo.push(`minrate: ${minrate}`);
+        if (skipVmaf) paramInfo.push('跳过VMAF');
+
         const payload = {
           msg_type: 'post',
           content: {
@@ -1146,6 +1165,7 @@ async function executeMatrixTask(taskJson) {
                 title: '矩阵评估任务完成',
                 content: [
                   [{ tag: 'text', text: `任务ID: ${taskJson.id}` }],
+                  [{ tag: 'text', text: `参数组合: ${paramInfo.join(', ')}` }],
                   [{ tag: 'text', text: `共 ${evaledCount} 个任务完成评估，平均得分 ${(avgScore * 100).toFixed(2)} 分` }],
                   [{ tag: 'text', text: 'CSV 下载链接：' }, { tag: 'a', text: csvFullUrl, href: csvFullUrl }]
                 ]

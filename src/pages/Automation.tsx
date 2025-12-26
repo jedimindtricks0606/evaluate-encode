@@ -1084,11 +1084,29 @@ export default function Automation() {
                     const csvFullUrl = (saveResp as any)?.full_url || null;
                     const jobCount = evaledJobs.length;
                     const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
+                    // 构建参数组合信息
+                    const paramInfo: string[] = [];
+                    paramInfo.push(`编码器: ${matrixEncoder}${nvencCodec ? `(${nvencCodec})` : ''}`);
+                    if (matrixPresets) paramInfo.push(`presets: ${matrixPresets}`);
+                    if (matrixRcMode) paramInfo.push(`rc: ${matrixRcMode}`);
+                    if (matrixCqValues) paramInfo.push(`cq: ${matrixCqValues}`);
+                    if (matrixQpValues) paramInfo.push(`qp: ${matrixQpValues}`);
+                    if (matrixBitrates && matrixBitrates !== '0') paramInfo.push(`bitrate: ${matrixBitrates}`);
+                    if (matrixMaxrates) paramInfo.push(`maxrate: ${matrixMaxrates}`);
+                    if (matrixBufsizes) paramInfo.push(`bufsize: ${matrixBufsizes}`);
+                    if (matrixTemporalAQ) paramInfo.push('temporal-aq: 1');
+                    if (matrixSpatialAQ) paramInfo.push('spatial-aq: 1');
+                    if (matrixProfile) paramInfo.push(`profile: ${matrixProfile}`);
+                    if (nvencTune) paramInfo.push(`tune: ${nvencTune}`);
+                    if (nvencMultipass) paramInfo.push(`multipass: ${nvencMultipass}`);
+                    if (nvencRcLookahead) paramInfo.push(`rc-lookahead: ${nvencRcLookahead}`);
+                    if (nvencMinrate) paramInfo.push(`minrate: ${nvencMinrate}`);
+                    if (qualityMetric === 'psnr') paramInfo.push('跳过VMAF');
                     const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
                     await (await import('@/lib/api')).notifyFeishu({
                       webhookUrl: FEISHU_WEBHOOK,
                       title: '矩阵评估完成',
-                      content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
+                      content: `参数组合: ${paramInfo.join(', ')}\n共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
                       csvUrl: csvFullUrl || undefined
                     });
                     // 记录到历史
@@ -1326,11 +1344,29 @@ export default function Automation() {
                     const csvFullUrl = (saveResp as any)?.full_url || null;
                     const jobCount = evaledJobs.length;
                     const avgScore = evaledJobs.reduce((acc, j) => acc + Number(j.evalSummary?.overall ?? 0), 0) / jobCount;
+                    // 构建参数组合信息
+                    const paramInfo2: string[] = [];
+                    paramInfo2.push(`编码器: ${matrixEncoder}${nvencCodec ? `(${nvencCodec})` : ''}`);
+                    if (matrixPresets) paramInfo2.push(`presets: ${matrixPresets}`);
+                    if (matrixRcMode) paramInfo2.push(`rc: ${matrixRcMode}`);
+                    if (matrixCqValues) paramInfo2.push(`cq: ${matrixCqValues}`);
+                    if (matrixQpValues) paramInfo2.push(`qp: ${matrixQpValues}`);
+                    if (matrixBitrates && matrixBitrates !== '0') paramInfo2.push(`bitrate: ${matrixBitrates}`);
+                    if (matrixMaxrates) paramInfo2.push(`maxrate: ${matrixMaxrates}`);
+                    if (matrixBufsizes) paramInfo2.push(`bufsize: ${matrixBufsizes}`);
+                    if (matrixTemporalAQ) paramInfo2.push('temporal-aq: 1');
+                    if (matrixSpatialAQ) paramInfo2.push('spatial-aq: 1');
+                    if (matrixProfile) paramInfo2.push(`profile: ${matrixProfile}`);
+                    if (nvencTune) paramInfo2.push(`tune: ${nvencTune}`);
+                    if (nvencMultipass) paramInfo2.push(`multipass: ${nvencMultipass}`);
+                    if (nvencRcLookahead) paramInfo2.push(`rc-lookahead: ${nvencRcLookahead}`);
+                    if (nvencMinrate) paramInfo2.push(`minrate: ${nvencMinrate}`);
+                    if (qualityMetric === 'psnr') paramInfo2.push('跳过VMAF');
                     const FEISHU_WEBHOOK = 'https://open.feishu.cn/open-apis/bot/v2/hook/a2714380-7dcf-403e-924b-8af1aa146267';
                     await (await import('@/lib/api')).notifyFeishu({
                       webhookUrl: FEISHU_WEBHOOK,
                       title: '批量评估完成',
-                      content: `共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
+                      content: `参数组合: ${paramInfo2.join(', ')}\n共 ${jobCount} 个任务，平均得分 ${(avgScore * 100).toFixed(2)} 分`,
                       csvUrl: csvFullUrl || undefined
                     });
                     // 记录到历史
