@@ -1,5 +1,5 @@
-import { Layout, Row, Col, Typography, Button, Upload, Card, Space, Switch } from 'antd';
-import { PlayCircleOutlined, UploadOutlined, InboxOutlined, VideoCameraOutlined, EyeOutlined, CloseOutlined } from '@ant-design/icons';
+import { Layout, Row, Col, Typography, Button, Upload, Card, Space, Switch, Spin } from 'antd';
+import { PlayCircleOutlined, UploadOutlined, InboxOutlined, VideoCameraOutlined, EyeOutlined, CloseOutlined, CloudUploadOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Header from '@/components/Layout/Header';
@@ -9,7 +9,8 @@ import BitrateAnalysisCard from '@/components/Evaluation/BitrateAnalysisCard';
 import ResultsPanel from '@/components/Evaluation/ResultsPanel';
 import { useEvaluationStore } from '@/stores/evaluationStore';
 import { EvaluationResults } from '@/types';
-import { evaluateQuality, evaluateVMAF, evaluatePSNR, evaluateSSIM } from '@/lib/api';
+import { evaluateQuality, evaluateVMAF, evaluatePSNR, evaluateSSIM, ensureVideoCached } from '@/lib/api';
+import { computeVideoHash } from '@/lib/videoHash';
 import { message } from 'antd';
 
 const { Content } = Layout;
@@ -44,7 +45,7 @@ function computeBitrateScore(targetKbps: number, actualKbps: number): number {
 export default function Home() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo, qualityCache, upsertQualityCache } = useEvaluationStore();
+  const { selectedTypes, setSelectedTypes, originalVideo, exportedVideo, setOriginalVideo, setExportedVideo, qualityCache, upsertQualityCache, updateOriginalVideoHash, updateExportedVideoHash } = useEvaluationStore();
   
   const [exportTime, setExportTime] = useState(30);
   const [benchmark, setBenchmark] = useState(30);
@@ -73,6 +74,8 @@ export default function Home() {
   const [automationSaving, setAutomationSaving] = useState(false);
   const [pingLoading, setPingLoading] = useState(false);
   const [serverHealth, setServerHealth] = useState<'unknown' | 'ok' | 'fail'>('unknown');
+  const [originalCaching, setOriginalCaching] = useState(false);
+  const [exportedCaching, setExportedCaching] = useState(false);
 
   const originalNotifiedRef = useRef(false);
   const exportedNotifiedRef = useRef(false);
@@ -194,7 +197,7 @@ export default function Home() {
     showUploadList: false,
   } as const;
 
-  const handleOriginalUpload = (info: any) => {
+  const handleOriginalUpload = async (info: any) => {
     const raw: File | undefined = info?.file?.originFileObj || info?.file || info?.fileList?.[info.fileList.length - 1]?.originFileObj;
     if (raw) {
       const v = {
@@ -214,10 +217,27 @@ export default function Home() {
         originalNotifiedRef.current = true;
         message.success('原视频选择成功！');
       }
+
+      // 计算哈希并缓存到服务器
+      setOriginalCaching(true);
+      try {
+        const hashInfo = await computeVideoHash(raw);
+        const cacheResult = await ensureVideoCached(raw, hashInfo.hash);
+        updateOriginalVideoHash(hashInfo.hash, true);
+        if (cacheResult.cached) {
+          message.info('原视频已在服务器缓存中');
+        } else {
+          message.success('原视频已上传到服务器缓存');
+        }
+      } catch (e) {
+        console.warn('缓存原视频失败:', e);
+      } finally {
+        setOriginalCaching(false);
+      }
     }
   };
 
-  const handleExportedUpload = (info: any) => {
+  const handleExportedUpload = async (info: any) => {
     const raw: File | undefined = info?.file?.originFileObj || info?.file || info?.fileList?.[info.fileList.length - 1]?.originFileObj;
     if (raw) {
       const v = {
@@ -236,6 +256,23 @@ export default function Home() {
       if (!exportedNotifiedRef.current) {
         exportedNotifiedRef.current = true;
         message.success('导出视频选择成功！');
+      }
+
+      // 计算哈希并缓存到服务器
+      setExportedCaching(true);
+      try {
+        const hashInfo = await computeVideoHash(raw);
+        const cacheResult = await ensureVideoCached(raw, hashInfo.hash);
+        updateExportedVideoHash(hashInfo.hash, true);
+        if (cacheResult.cached) {
+          message.info('导出视频已在服务器缓存中');
+        } else {
+          message.success('导出视频已上传到服务器缓存');
+        }
+      } catch (e) {
+        console.warn('缓存导出视频失败:', e);
+      } finally {
+        setExportedCaching(false);
       }
     }
   };
@@ -373,8 +410,10 @@ export default function Home() {
       if (fpsA == null || fpsB == null) {
         try {
           const probe = await evaluateQuality({
-            before: originalVideo.raw,
-            after: exportedVideo.raw,
+            before: originalVideo.hash && originalVideo.isCached ? undefined : originalVideo.raw,
+            after: exportedVideo.hash && exportedVideo.isCached ? undefined : exportedVideo.raw,
+            beforeHash: originalVideo.hash && originalVideo.isCached ? originalVideo.hash : undefined,
+            afterHash: exportedVideo.hash && exportedVideo.isCached ? exportedVideo.hash : undefined,
             exportTimeSeconds: Number(exportTime || 0),
             mode: 'bitrate'
           });
@@ -435,8 +474,10 @@ export default function Home() {
 
       // 计算效率比（按像素归一）
       const data = await evaluateQuality({
-        before: originalVideo.raw,
-        after: exportedVideo.raw,
+        before: originalVideo.hash && originalVideo.isCached ? undefined : originalVideo.raw,
+        after: exportedVideo.hash && exportedVideo.isCached ? undefined : exportedVideo.raw,
+        beforeHash: originalVideo.hash && originalVideo.isCached ? originalVideo.hash : undefined,
+        afterHash: exportedVideo.hash && exportedVideo.isCached ? exportedVideo.hash : undefined,
         exportTimeSeconds: Number(exportTime || 0),
         mode: 'bitrate'
       });
@@ -482,9 +523,12 @@ export default function Home() {
       }
       setBitrateLoading(true);
       message.loading({ content: '码率分析中...', key: 'bitrate', duration: 0 });
+      // 优先使用哈希（如果已缓存），否则回退到直接上传
       const data = await evaluateQuality({
-        before: originalVideo.raw,
-        after: exportedVideo.raw,
+        before: originalVideo.hash && originalVideo.isCached ? undefined : originalVideo.raw,
+        after: exportedVideo.hash && exportedVideo.isCached ? undefined : exportedVideo.raw,
+        beforeHash: originalVideo.hash && originalVideo.isCached ? originalVideo.hash : undefined,
+        afterHash: exportedVideo.hash && exportedVideo.isCached ? exportedVideo.hash : undefined,
         exportTimeSeconds: exportTime,
         mode: 'bitrate'
       });
@@ -590,8 +634,10 @@ export default function Home() {
 
         // 3) 码率分析与效率评分 E
         const data = await evaluateQuality({
-          before: originalVideo.raw,
-          after: exportedVideo.raw,
+          before: originalVideo.hash && originalVideo.isCached ? undefined : originalVideo.raw,
+          after: exportedVideo.hash && exportedVideo.isCached ? undefined : exportedVideo.raw,
+          beforeHash: originalVideo.hash && originalVideo.isCached ? originalVideo.hash : undefined,
+          afterHash: exportedVideo.hash && exportedVideo.isCached ? exportedVideo.hash : undefined,
           exportTimeSeconds: timeSec || 0,
           mode: 'bitrate'
         });
@@ -833,9 +879,19 @@ export default function Home() {
           <Title level={2} className="!mb-4">上传视频</Title>
           <Row gutter={24}>
             <Col span={12}>
-              <Card 
-                title="原视频" 
-                className="shadow-sm" 
+              <Card
+                title={
+                  <Space>
+                    <span>原视频</span>
+                    {originalCaching && <Spin size="small" />}
+                    {!originalCaching && originalVideo?.isCached && (
+                      <span className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircleOutlined /> 已缓存
+                      </span>
+                    )}
+                  </Space>
+                }
+                className="shadow-sm"
                 extra={originalVideo ? (
                   <Space size="small" align="center">
                     <Text type="secondary" className="max-w-[240px] truncate">{originalVideo.name}</Text>
@@ -845,9 +901,9 @@ export default function Home() {
               >
                 {originalVideo ? (
                   <div className="p-2">
-                    <video 
-                      src={originalVideo.url} 
-                      controls 
+                    <video
+                      src={originalVideo.url}
+                      controls
                       className="w-full h-64 rounded"
                       onLoadedMetadata={(e) => {
                         const v = e.currentTarget as HTMLVideoElement;
@@ -872,9 +928,19 @@ export default function Home() {
               </Card>
             </Col>
             <Col span={12}>
-              <Card 
-                title="导出视频" 
-                className="shadow-sm" 
+              <Card
+                title={
+                  <Space>
+                    <span>导出视频</span>
+                    {exportedCaching && <Spin size="small" />}
+                    {!exportedCaching && exportedVideo?.isCached && (
+                      <span className="text-xs text-green-600 flex items-center gap-1">
+                        <CheckCircleOutlined /> 已缓存
+                      </span>
+                    )}
+                  </Space>
+                }
+                className="shadow-sm"
                 extra={exportedVideo ? (
                   <Space size="small" align="center">
                     <Text type="secondary" className="max-w-[240px] truncate">{exportedVideo.name}</Text>
@@ -884,9 +950,9 @@ export default function Home() {
               >
                 {exportedVideo ? (
                   <div className="p-2">
-                    <video 
-                      src={exportedVideo.url} 
-                      controls 
+                    <video
+                      src={exportedVideo.url}
+                      controls
                       className="w-full h-64 rounded"
                       onLoadedMetadata={(e) => {
                         const v = e.currentTarget as HTMLVideoElement;

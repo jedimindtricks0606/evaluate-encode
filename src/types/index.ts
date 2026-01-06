@@ -9,6 +9,8 @@ export interface VideoFile {
   bitrate: number;
   uploadTime: string;
   raw?: File;
+  hash?: string; // 视频内容哈希，用于服务端缓存
+  isCached?: boolean; // 是否已缓存到服务端
 }
 
 export interface EvaluationTask {

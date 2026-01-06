@@ -14,6 +14,8 @@ interface EvaluationState {
   setSelectedTypes: (types: EvaluationType[]) => void;
   setIsProcessing: (processing: boolean) => void;
   upsertQualityCache: (key: string, patch: QualityMetricCache) => void;
+  updateOriginalVideoHash: (hash: string, isCached: boolean) => void;
+  updateExportedVideoHash: (hash: string, isCached: boolean) => void;
   reset: () => void;
 }
 
@@ -30,6 +32,12 @@ export const useEvaluationStore = create<EvaluationState>((set) => ({
   setSelectedTypes: (types) => set({ selectedTypes: types }),
   setIsProcessing: (processing) => set({ isProcessing: processing }),
   upsertQualityCache: (key, patch) => set(state => ({ qualityCache: { ...state.qualityCache, [key]: { ...(state.qualityCache[key] || {}), ...patch } } })),
+  updateOriginalVideoHash: (hash, isCached) => set(state => ({
+    originalVideo: state.originalVideo ? { ...state.originalVideo, hash, isCached } : null
+  })),
+  updateExportedVideoHash: (hash, isCached) => set(state => ({
+    exportedVideo: state.exportedVideo ? { ...state.exportedVideo, hash, isCached } : null
+  })),
   reset: () => set({
     currentTask: null,
     originalVideo: null,

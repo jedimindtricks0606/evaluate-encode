@@ -5,8 +5,10 @@ const API_BASE = window.location.hostname === 'localhost'
   : `http://${window.location.hostname}:3000`;
 
 export async function evaluateQuality(options: {
-  before: File;
-  after: File;
+  before?: File;
+  after?: File;
+  beforeHash?: string;
+  afterHash?: string;
   exportTimeSeconds: number;
   weights?: { quality?: number; speed?: number; bitrate?: number };
   targetBitrateKbps?: number | null;
@@ -15,8 +17,17 @@ export async function evaluateQuality(options: {
   skipVmaf?: boolean;
 }): Promise<any> {
   const fd = new FormData();
-  fd.append('beforeVideo', options.before);
-  fd.append('afterVideo', options.after);
+  // 支持通过哈希或文件两种方式传递视频
+  if (options.beforeHash) {
+    fd.append('beforeVideoHash', options.beforeHash);
+  } else if (options.before) {
+    fd.append('beforeVideo', options.before);
+  }
+  if (options.afterHash) {
+    fd.append('afterVideoHash', options.afterHash);
+  } else if (options.after) {
+    fd.append('afterVideo', options.after);
+  }
   fd.append('exportTimeSeconds', String(options.exportTimeSeconds));
   if (options.weights?.quality != null) fd.append('w_quality', String(options.weights.quality));
   if (options.weights?.speed != null) fd.append('w_speed', String(options.weights.speed));
@@ -335,4 +346,110 @@ export async function frontendLock(action: 'acquire' | 'release' | 'check'): Pro
   });
   const data = await resp.json().catch(() => ({}));
   return data as any;
+}
+
+// ============ Video Cache API ============
+
+export interface CachedVideoInfo {
+  hash: string;
+  originalName: string;
+  fileSize: number;
+  metadata?: {
+    duration?: number;
+    resolution?: string;
+    codec?: string;
+    bitrate?: number;
+    fps?: number;
+  };
+}
+
+export interface CacheCheckResult {
+  status: string;
+  exists: boolean;
+  cachedVideo?: CachedVideoInfo;
+}
+
+export interface CacheUploadResult {
+  status: string;
+  cached: boolean;
+  hash: string;
+  cachedVideo?: CachedVideoInfo;
+}
+
+export interface CacheStats {
+  status: string;
+  totalVideos: number;
+  totalSizeBytes: number;
+  totalSizeGB: number;
+  maxSizeGB: number;
+  usagePercent: number;
+  oldestVideo?: string;
+  newestVideo?: string;
+}
+
+/**
+ * 检查视频是否已缓存
+ */
+export async function checkVideoCache(hash: string, fileName?: string, fileSize?: number): Promise<CacheCheckResult> {
+  const resp = await fetch(`${API_BASE}/cache/check`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hash, fileName, fileSize })
+  });
+  const data = await resp.json().catch(() => ({ status: 'error', exists: false }));
+  return data;
+}
+
+/**
+ * 上传视频到缓存
+ */
+export async function uploadVideoToCache(file: File, hash: string): Promise<CacheUploadResult> {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('hash', hash);
+  const resp = await fetch(`${API_BASE}/cache/upload`, { method: 'POST', body: fd });
+  const data = await resp.json().catch(() => ({ status: 'error', cached: false, hash }));
+  return data;
+}
+
+/**
+ * 获取缓存统计信息
+ */
+export async function getCacheStats(): Promise<CacheStats> {
+  const resp = await fetch(`${API_BASE}/cache/stats`);
+  const data = await resp.json().catch(() => ({ status: 'error', totalVideos: 0 }));
+  return data;
+}
+
+/**
+ * 清理缓存
+ */
+export async function cleanupCache(keepCount?: number): Promise<{ status: string; removed: number }> {
+  const resp = await fetch(`${API_BASE}/cache/cleanup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keepCount })
+  });
+  const data = await resp.json().catch(() => ({ status: 'error', removed: 0 }));
+  return data;
+}
+
+/**
+ * 确保视频已缓存（检查 + 上传）
+ * 返回视频的哈希值，可用于后续评估
+ */
+export async function ensureVideoCached(file: File, hash: string): Promise<{ hash: string; cached: boolean; info?: CachedVideoInfo }> {
+  // 先检查是否已缓存
+  const checkResult = await checkVideoCache(hash, file.name, file.size);
+  if (checkResult.exists && checkResult.cachedVideo) {
+    return { hash, cached: true, info: checkResult.cachedVideo };
+  }
+
+  // 未缓存，上传
+  const uploadResult = await uploadVideoToCache(file, hash);
+  return {
+    hash,
+    cached: uploadResult.cached,
+    info: uploadResult.cachedVideo
+  };
 }

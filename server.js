@@ -45,10 +45,184 @@ function getLocalIP() {
 }
 const BASE_DIR = getBaseDir();
 const FFMPEG_DIR = path.join(BASE_DIR, 'ffmpeg');
+const VIDEO_CACHE_DIR = path.join(BASE_DIR, 'video-cache');
+const VIDEO_CACHE_VIDEOS_DIR = path.join(VIDEO_CACHE_DIR, 'videos');
+const VIDEO_CACHE_METADATA_FILE = path.join(VIDEO_CACHE_DIR, 'metadata.json');
 try {
   if (!fs.existsSync(BASE_DIR)) fs.mkdirSync(BASE_DIR, { recursive: true });
   if (!fs.existsSync(FFMPEG_DIR)) fs.mkdirSync(FFMPEG_DIR, { recursive: true });
+  if (!fs.existsSync(VIDEO_CACHE_DIR)) fs.mkdirSync(VIDEO_CACHE_DIR, { recursive: true });
+  if (!fs.existsSync(VIDEO_CACHE_VIDEOS_DIR)) fs.mkdirSync(VIDEO_CACHE_VIDEOS_DIR, { recursive: true });
 } catch (_) {}
+
+// ============ Video Cache Manager ============
+const VIDEO_CACHE_MAX_SIZE = 50 * 1024 * 1024 * 1024; // 50GB
+
+class VideoCacheManager {
+  constructor() {
+    this.metadata = this.loadMetadata();
+  }
+
+  loadMetadata() {
+    try {
+      if (fs.existsSync(VIDEO_CACHE_METADATA_FILE)) {
+        const data = JSON.parse(fs.readFileSync(VIDEO_CACHE_METADATA_FILE, 'utf8'));
+        console.log(`[video-cache] 已加载 ${Object.keys(data.videos || {}).length} 条缓存记录`);
+        return data;
+      }
+    } catch (e) {
+      console.warn('[video-cache] 加载缓存元数据失败:', e.message);
+    }
+    return { videos: {}, version: '1.0' };
+  }
+
+  saveMetadata() {
+    try {
+      fs.writeFileSync(VIDEO_CACHE_METADATA_FILE, JSON.stringify(this.metadata, null, 2), 'utf8');
+    } catch (e) {
+      console.warn('[video-cache] 保存缓存元数据失败:', e.message);
+    }
+  }
+
+  checkVideo(hash) {
+    const cached = this.metadata.videos[hash];
+    if (!cached) return null;
+    // 验证文件是否存在
+    if (!fs.existsSync(cached.storedPath)) {
+      delete this.metadata.videos[hash];
+      this.saveMetadata();
+      return null;
+    }
+    return cached;
+  }
+
+  async storeVideo(hash, filePath, originalName, fileSize) {
+    const ext = path.extname(originalName) || '.mp4';
+    const destPath = path.join(VIDEO_CACHE_VIDEOS_DIR, `${hash}${ext}`);
+
+    // 如果已存在，只更新访问时间
+    if (this.metadata.videos[hash] && fs.existsSync(destPath)) {
+      this.metadata.videos[hash].lastAccessedAt = new Date().toISOString();
+      this.metadata.videos[hash].accessCount++;
+      this.saveMetadata();
+      return destPath;
+    }
+
+    // 复制文件到缓存目录
+    await fs.promises.copyFile(filePath, destPath);
+
+    // 获取视频元数据
+    const videoMeta = ffprobeJson(destPath);
+    const duration = getDurationSeconds(videoMeta || {});
+    const vStream = (videoMeta?.streams || []).find(s => s.codec_type === 'video');
+    const resolution = vStream ? `${vStream.width}x${vStream.height}` : null;
+    const codec = vStream?.codec_name || null;
+    const bitrate = getBitrateBps(videoMeta || {});
+    const fps = getFps(videoMeta || {});
+
+    this.metadata.videos[hash] = {
+      hash,
+      originalName,
+      fileSize,
+      storedPath: destPath,
+      uploadedAt: new Date().toISOString(),
+      lastAccessedAt: new Date().toISOString(),
+      accessCount: 1,
+      metadata: { duration, resolution, codec, bitrate, fps }
+    };
+
+    this.saveMetadata();
+    await this.checkSizeAndCleanup();
+    return destPath;
+  }
+
+  getVideoPath(hash) {
+    const cached = this.metadata.videos[hash];
+    if (!cached) return null;
+    if (!fs.existsSync(cached.storedPath)) {
+      delete this.metadata.videos[hash];
+      this.saveMetadata();
+      return null;
+    }
+    // 更新访问时间
+    cached.lastAccessedAt = new Date().toISOString();
+    cached.accessCount++;
+    this.saveMetadata();
+    return cached.storedPath;
+  }
+
+  getTotalSize() {
+    return Object.values(this.metadata.videos).reduce((sum, v) => sum + (v.fileSize || 0), 0);
+  }
+
+  async checkSizeAndCleanup() {
+    const totalSize = this.getTotalSize();
+    if (totalSize > VIDEO_CACHE_MAX_SIZE) {
+      console.log(`[video-cache] 缓存大小 ${(totalSize / 1024 / 1024 / 1024).toFixed(2)}GB 超过限制，开始清理`);
+      await this.evictLRU(VIDEO_CACHE_MAX_SIZE * 0.8);
+    }
+  }
+
+  async evictLRU(targetSize) {
+    const sorted = Object.values(this.metadata.videos)
+      .sort((a, b) => new Date(a.lastAccessedAt).getTime() - new Date(b.lastAccessedAt).getTime());
+
+    let currentSize = this.getTotalSize();
+
+    for (const video of sorted) {
+      if (currentSize <= targetSize) break;
+      try {
+        await fs.promises.unlink(video.storedPath);
+        console.log(`[video-cache] 删除缓存文件: ${video.originalName} (${(video.fileSize / 1024 / 1024).toFixed(2)}MB)`);
+      } catch (_) {}
+      delete this.metadata.videos[video.hash];
+      currentSize -= video.fileSize;
+    }
+
+    this.saveMetadata();
+  }
+
+  getStats() {
+    const videos = Object.values(this.metadata.videos);
+    const totalSize = this.getTotalSize();
+    const sorted = videos.sort((a, b) =>
+      new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime()
+    );
+    return {
+      totalVideos: videos.length,
+      totalSizeBytes: totalSize,
+      totalSizeGB: Number((totalSize / 1024 / 1024 / 1024).toFixed(2)),
+      maxSizeGB: Number((VIDEO_CACHE_MAX_SIZE / 1024 / 1024 / 1024).toFixed(2)),
+      usagePercent: Number((totalSize / VIDEO_CACHE_MAX_SIZE * 100).toFixed(1)),
+      oldestVideo: sorted.length > 0 ? sorted[sorted.length - 1]?.originalName : null,
+      newestVideo: sorted.length > 0 ? sorted[0]?.originalName : null
+    };
+  }
+
+  async cleanup(options = {}) {
+    const { keepCount } = options;
+    let removed = 0;
+
+    if (keepCount && keepCount > 0) {
+      const sorted = Object.values(this.metadata.videos)
+        .sort((a, b) => new Date(b.lastAccessedAt).getTime() - new Date(a.lastAccessedAt).getTime());
+
+      const toRemove = sorted.slice(keepCount);
+      for (const video of toRemove) {
+        try {
+          await fs.promises.unlink(video.storedPath);
+        } catch (_) {}
+        delete this.metadata.videos[video.hash];
+        removed++;
+      }
+      this.saveMetadata();
+    }
+
+    return { removed };
+  }
+}
+
+const videoCache = new VideoCacheManager();
 
 function clamp01(x) {
   if (isNaN(x)) return 0;
@@ -367,6 +541,8 @@ app.post('/evaluate', upload.fields([
   try {
     const before = req.files?.beforeVideo?.[0];
     const after = req.files?.afterVideo?.[0];
+    const beforeVideoHash = req.body?.beforeVideoHash;
+    const afterVideoHash = req.body?.afterVideoHash;
     const exportTimeSeconds = Number(req.body?.exportTimeSeconds || 0);
     const mode = req.body?.mode || null;
     const targetBitrateKbps = req.body?.targetBitrateKbps ? Number(req.body.targetBitrateKbps) : null;
@@ -378,12 +554,40 @@ app.post('/evaluate', upload.fields([
       bitrate: req.body?.w_bitrate
     });
 
-    if (!before || !after) {
-      return res.status(400).json({ error: '必须上传导出前与导出后视频' });
+    let beforePath = null;
+    let afterPath = null;
+    let usedCache = { before: false, after: false };
+
+    // 优先使用缓存的视频
+    if (beforeVideoHash) {
+      beforePath = videoCache.getVideoPath(beforeVideoHash);
+      if (beforePath) {
+        usedCache.before = true;
+        console.log(`[evaluate] 使用缓存的原视频: ${beforeVideoHash}`);
+      }
+    }
+    if (afterVideoHash) {
+      afterPath = videoCache.getVideoPath(afterVideoHash);
+      if (afterPath) {
+        usedCache.after = true;
+        console.log(`[evaluate] 使用缓存的导出视频: ${afterVideoHash}`);
+      }
     }
 
-    const beforePath = before.path;
-    const afterPath = after.path;
+    // 如果缓存未命中，使用上传的文件
+    if (!beforePath && before) {
+      beforePath = before.path;
+    }
+    if (!afterPath && after) {
+      afterPath = after.path;
+    }
+
+    if (!beforePath || !afterPath) {
+      // 清理已上传的临时文件
+      if (before?.path && !usedCache.before) try { fs.unlinkSync(before.path); } catch (_) {}
+      if (after?.path && !usedCache.after) try { fs.unlinkSync(after.path); } catch (_) {}
+      return res.status(400).json({ error: '必须上传导出前与导出后视频，或提供有效的缓存哈希' });
+    }
 
     const metaBefore = ffprobeJson(beforePath) || {};
     const metaAfter = ffprobeJson(afterPath) || {};
@@ -445,12 +649,13 @@ app.post('/evaluate', upload.fields([
       exportTimeSeconds,
       weights,
       scores: { quality: qualityScore, speed: speedScore, bitrate: bitrateScore },
-      final: finalScore
+      final: finalScore,
+      usedCache
     });
 
-    // Cleanup temp files
-    try { fs.unlinkSync(beforePath); } catch (_) {}
-    try { fs.unlinkSync(afterPath); } catch (_) {}
+    // Cleanup temp files (only non-cached files)
+    if (!usedCache.before && before?.path) try { fs.unlinkSync(before.path); } catch (_) {}
+    if (!usedCache.after && after?.path) try { fs.unlinkSync(after.path); } catch (_) {}
 
       return res.json({
         weights,
@@ -536,6 +741,112 @@ app.post('/evaluate/ssim', upload.fields([
     return res.json({ metrics: { ssim } });
   } catch (e) {
     return res.status(500).json({ error: 'SSIM计算失败', detail: String(e && e.message || e) });
+  }
+});
+
+// ============ Video Cache API ============
+
+// 检查视频是否已缓存
+app.post('/cache/check', express.json(), (req, res) => {
+  try {
+    const { hash, fileName, fileSize } = req.body;
+    if (!hash) return res.status(400).json({ status: 'error', message: '缺少 hash 参数' });
+
+    const cached = videoCache.checkVideo(hash);
+    if (cached) {
+      console.log(`[cache/check] 缓存命中: ${hash} -> ${cached.originalName}`);
+      return res.json({
+        status: 'success',
+        exists: true,
+        cachedVideo: {
+          hash: cached.hash,
+          originalName: cached.originalName,
+          fileSize: cached.fileSize,
+          metadata: cached.metadata
+        }
+      });
+    }
+
+    console.log(`[cache/check] 缓存未命中: ${hash}`);
+    return res.json({ status: 'success', exists: false });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '检查缓存失败', detail: String(e?.message || e) });
+  }
+});
+
+// 上传视频到缓存
+app.post('/cache/upload', upload.single('file'), async (req, res) => {
+  try {
+    const file = req.file;
+    const hash = req.body?.hash;
+
+    if (!file) return res.status(400).json({ status: 'error', message: '缺少文件' });
+    if (!hash) {
+      try { fs.unlinkSync(file.path); } catch (_) {}
+      return res.status(400).json({ status: 'error', message: '缺少 hash 参数' });
+    }
+
+    // 检查是否已存在
+    const existing = videoCache.checkVideo(hash);
+    if (existing) {
+      try { fs.unlinkSync(file.path); } catch (_) {}
+      console.log(`[cache/upload] 视频已存在，跳过上传: ${hash}`);
+      return res.json({
+        status: 'success',
+        cached: true,
+        hash,
+        cachedVideo: {
+          hash: existing.hash,
+          originalName: existing.originalName,
+          fileSize: existing.fileSize,
+          metadata: existing.metadata
+        }
+      });
+    }
+
+    // 存储到缓存
+    const storedPath = await videoCache.storeVideo(hash, file.path, file.originalname || 'video.mp4', file.size);
+
+    // 删除临时文件
+    try { fs.unlinkSync(file.path); } catch (_) {}
+
+    const cachedVideo = videoCache.checkVideo(hash);
+    console.log(`[cache/upload] 视频已缓存: ${hash} -> ${storedPath}`);
+
+    return res.json({
+      status: 'success',
+      cached: false,
+      hash,
+      cachedVideo: cachedVideo ? {
+        hash: cachedVideo.hash,
+        originalName: cachedVideo.originalName,
+        fileSize: cachedVideo.fileSize,
+        metadata: cachedVideo.metadata
+      } : null
+    });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '上传缓存失败', detail: String(e?.message || e) });
+  }
+});
+
+// 获取缓存统计信息
+app.get('/cache/stats', (req, res) => {
+  try {
+    const stats = videoCache.getStats();
+    return res.json({ status: 'success', ...stats });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '获取缓存统计失败', detail: String(e?.message || e) });
+  }
+});
+
+// 手动清理缓存
+app.post('/cache/cleanup', express.json(), async (req, res) => {
+  try {
+    const { keepCount } = req.body;
+    const result = await videoCache.cleanup({ keepCount });
+    return res.json({ status: 'success', ...result });
+  } catch (e) {
+    return res.status(500).json({ status: 'error', message: '清理缓存失败', detail: String(e?.message || e) });
   }
 });
 
